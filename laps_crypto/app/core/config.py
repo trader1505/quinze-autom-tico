@@ -11,11 +11,21 @@ def _decimal_from_env(name: str, default: str) -> Decimal:
     return Decimal(os.getenv(name, default).strip())
 
 
+def _bool_from_env(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class TradingConfig:
     """Immutable runtime configuration."""
 
     base_asset: str
+    default_symbol: str
+    execution_mode: str
+    use_binance_testnet: bool
+    binance_api_key: str
+    binance_api_secret: str
+    binance_recv_window_ms: int
     quantity_precision: Decimal
     min_close_profit_pct: Decimal
     taker_fee_pct: Decimal
@@ -33,8 +43,18 @@ class TradingConfig:
 
 def load_config() -> TradingConfig:
     """Create config from environment values."""
+    execution_mode = os.getenv("LAPS_EXECUTION_MODE", "paper").strip().lower()
+    if execution_mode not in {"paper", "live"}:
+        raise ValueError("LAPS_EXECUTION_MODE deve ser 'paper' ou 'live'.")
+
     return TradingConfig(
         base_asset=os.getenv("LAPS_BASE_ASSET", "USDT"),
+        default_symbol=os.getenv("LAPS_DEFAULT_SYMBOL", "BTCUSDT").strip().upper(),
+        execution_mode=execution_mode,
+        use_binance_testnet=_bool_from_env("LAPS_USE_BINANCE_TESTNET", "true"),
+        binance_api_key=os.getenv("BINANCE_API_KEY", "").strip(),
+        binance_api_secret=os.getenv("BINANCE_API_SECRET", "").strip(),
+        binance_recv_window_ms=int(os.getenv("BINANCE_RECV_WINDOW_MS", "5000").strip()),
         quantity_precision=Decimal("0.001"),
         min_close_profit_pct=_decimal_from_env("LAPS_MIN_CLOSE_PROFIT_PCT", "0.1"),
         taker_fee_pct=_decimal_from_env("LAPS_TAKER_FEE_PCT", "0.04"),

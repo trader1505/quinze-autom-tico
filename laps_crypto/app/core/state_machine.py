@@ -39,8 +39,18 @@ class BotStateMachine:
             EngineState.IDLE,
             EngineState.PAUSED,
         },
-        EngineState.HEDGING: {EngineState.MANAGING, EngineState.RECOVERY, EngineState.PAUSED},
-        EngineState.RECOVERY: {EngineState.MANAGING, EngineState.HEDGING, EngineState.PAUSED},
+        EngineState.HEDGING: {
+            EngineState.MANAGING,
+            EngineState.RECOVERY,
+            EngineState.IDLE,
+            EngineState.PAUSED,
+        },
+        EngineState.RECOVERY: {
+            EngineState.MANAGING,
+            EngineState.HEDGING,
+            EngineState.IDLE,
+            EngineState.PAUSED,
+        },
         EngineState.PAUSED: {EngineState.IDLE},
     }
 

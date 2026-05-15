@@ -39,16 +39,14 @@ class LapsCryptoSystem:
     @classmethod
     def bootstrap(cls) -> "LapsCryptoSystem":
         config = load_config()
-        client = BinanceClient(
-            balances={config.base_asset: Decimal("100000")},
-            prices={"BTCUSDT": Decimal("65000"), "ETHUSDT": Decimal("3200")},
-        )
+        client = BinanceClient.from_config(config)
         return cls(config=config, client=client)
 
     def run_cycle(self) -> None:
         logger = build_logger()
         machine = BotStateMachine()
 
+        symbol = self.config.default_symbol
         account_reader = AccountReader(self.client, self.config.base_asset)
         position_reader = PositionReader(self.client)
         order_executor = OrderExecutor(config=self.config, client=self.client, logger=logger)
@@ -69,48 +67,56 @@ class LapsCryptoSystem:
 
         machine.transition_to(EngineState.ANALYZING)
         log_event(logger, "Iniciando análise de mercado.")
+        log_event(
+            logger,
+            "Modo de execução configurado.",
+            {
+                "modo": "live" if self.client.is_live else "paper",
+                "testnet": str(self.config.use_binance_testnet),
+                "simbolo": symbol,
+            },
+        )
 
         account = account_reader.read()
-        mark_price = self.client.get_mark_price("BTCUSDT")
-        signal = signal_engine.generate_signal("BTCUSDT", mark_price)
+        mark_price = self.client.get_mark_price(symbol)
+        signal = signal_engine.generate_signal(symbol, mark_price)
         positions = position_reader.list_open_positions()
         exposure_pct = risk_engine.current_exposure_pct(
             equity=account.equity,
             positions=positions,
         )
 
-        allowed_entry = signal.strength > 0 and defense_engine.can_open_new_position(
-            exposure_pct=exposure_pct,
-            max_exposure_pct=self.config.max_portfolio_exposure_pct,
-        )
-        if allowed_entry:
-            quantity = sizing_engine.compute_position_size(
-                equity=account.equity,
-                mark_price=mark_price,
-                signal_strength=signal.strength,
+        position = position_reader.get_open_position(symbol)
+        if position is None:
+            allowed_entry = signal.strength > 0 and defense_engine.can_open_new_position(
+                exposure_pct=exposure_pct,
+                max_exposure_pct=self.config.max_portfolio_exposure_pct,
             )
-            entry_result = entry_engine.try_open(signal=signal, quantity=quantity, mark_price=mark_price)
-            log_event(logger, entry_result.message_pt_br)
-        else:
-            log_event(logger, "Abertura bloqueada pelo controle de risco ou ausência de sinal.")
+            if allowed_entry:
+                machine.transition_to(EngineState.OPENING)
+                quantity = sizing_engine.compute_position_size(
+                    equity=account.equity,
+                    mark_price=mark_price,
+                    signal_strength=signal.strength,
+                )
+                entry_result = entry_engine.try_open(signal=signal, quantity=quantity, mark_price=mark_price)
+                log_event(logger, entry_result.message_pt_br)
+            else:
+                log_event(logger, "Abertura bloqueada pelo controle de risco ou ausência de sinal.")
 
         machine.transition_to(EngineState.MANAGING)
-        position = position_reader.get_open_position("BTCUSDT")
+        position = position_reader.get_open_position(symbol)
         if position is None:
             log_event(logger, "Nenhuma posição aberta para gerenciamento.")
             machine.transition_to(EngineState.IDLE)
             return
 
-        next_price = (
-            position.entry_price * Decimal("1.0040")
-            if position.side.value == "LONG"
-            else position.entry_price * Decimal("0.9960")
-        )
-        self.client.set_mark_price(position.symbol, next_price)
+        latest_mark = self.client.get_mark_price(position.symbol)
+        position.mark_price = latest_mark
         funding_cost = recovery_engine.estimate_funding_cost(position)
         close_result = order_executor.execute_close_if_safe(
             position=position,
-            mark_price=next_price,
+            mark_price=latest_mark,
             funding_cost=funding_cost,
         )
         log_event(logger, close_result.message_pt_br)
