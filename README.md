@@ -80,6 +80,39 @@ export LAPS_WEB_DEBUG=false
 export LAPS_WEB_SECRET="troque-esta-chave"
 ```
 
+## Deploy automático em VPS (Ubuntu/Debian)
+
+> Segurança: não compartilhe senha root em chat. Prefira chave SSH e usuário dedicado.
+
+### 1) Deploy + instalação
+
+No seu computador local (na pasta do projeto):
+
+```bash
+export VPS_IP=187.124.35.57
+export VPS_USER=root
+export REMOTE_DIR=/root/laps_crypto
+bash scripts/deploy_to_vps.sh
+```
+
+### 2) Ajustar configuração na VPS
+
+```bash
+ssh root@187.124.35.57
+cd /root/laps_crypto
+nano .env
+```
+
+Defina modo, símbolo e credenciais Binance no `.env`.
+
+### 3) Comandos de operação do serviço
+
+```bash
+systemctl status laps-crypto-dashboard
+systemctl restart laps-crypto-dashboard
+journalctl -u laps-crypto-dashboard -f
+```
+
 ## Testes
 
 ```bash
