@@ -53,6 +53,33 @@ Use `live` com `LAPS_USE_BINANCE_TESTNET=true` para validar tudo em ambiente de 
 python3 -m laps_crypto.app.main
 ```
 
+## Painel web
+
+O painel permite:
+
+- visualizar modo (`paper/live`), conta, risco e posições
+- executar ciclo automático
+- abrir ordem manual
+- avaliar fechamento com a trava de lucro líquido
+- fechar posição com segurança (`NET_PROFIT >= +0.1%`)
+- limpar saldos residuais
+- ajustar preço manual (apenas em `paper`)
+
+### Iniciar painel
+
+```bash
+python3 -m laps_crypto.app.web.dashboard
+```
+
+Variáveis opcionais:
+
+```bash
+export LAPS_WEB_HOST=0.0.0.0
+export LAPS_WEB_PORT=8080
+export LAPS_WEB_DEBUG=false
+export LAPS_WEB_SECRET="troque-esta-chave"
+```
+
 ## Testes
 
 ```bash

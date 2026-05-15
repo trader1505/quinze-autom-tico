@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel LAPS Crypto</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="header">
+    <h1>Painel LAPS Crypto</h1>
+    <p>Controle operacional com travas de segurança para Binance Futures</p>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <section class="flash-list">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </section>
+      {% endif %}
+    {% endwith %}
+
+    <section class="grid two">
+      <article class="card">
+        <h2>Status de execução</h2>
+        <dl>
+          <dt>Modo</dt>
+          <dd>{{ data.config.modo_execucao }}</dd>
+          <dt>Testnet</dt>
+          <dd>{{ data.config.testnet }}</dd>
+          <dt>Símbolo padrão</dt>
+          <dd>{{ data.config.simbolo_padrao }}</dd>
+          <dt>Ativo base</dt>
+          <dd>{{ data.config.ativo_base }}</dd>
+          <dt>Mínimo de fechamento (%)</dt>
+          <dd>{{ data.config.minimo_fechamento_pct }}</dd>
+        </dl>
+        <form method="post" action="{{ url_for('execute_cycle') }}">
+          <button type="submit">Executar ciclo automático</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Conta e risco</h2>
+        <dl>
+          <dt>Equity</dt>
+          <dd>{{ data.conta.equity }}</dd>
+          <dt>Colateral livre</dt>
+          <dd>{{ data.conta.colateral_livre }}</dd>
+          <dt>Colateral utilizado</dt>
+          <dd>{{ data.conta.colateral_utilizado }}</dd>
+          <dt>Exposição (%)</dt>
+          <dd>{{ data.conta.exposicao_pct }}</dd>
+          <dt>Capital (equity)</dt>
+          <dd>{{ data.conta.capital_equity }}</dd>
+        </dl>
+      </article>
+    </section>
+
+    <section class="grid three">
+      <article class="card">
+        <h2>Abrir ordem manual</h2>
+        <form method="post" action="{{ url_for('open_order') }}" class="form">
+          <label>Símbolo
+            <input name="symbol" value="{{ data.config.simbolo_padrao }}" required>
+          </label>
+          <label>Lado
+            <select name="side" required>
+              <option value="LONG">LONG</option>
+              <option value="SHORT">SHORT</option>
+            </select>
+          </label>
+          <label>Quantidade
+            <input name="quantity" placeholder="0.001" required>
+          </label>
+          <button type="submit">Enviar ordem de abertura</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Fechamento seguro</h2>
+        <form method="post" action="{{ url_for('evaluate_close') }}" class="form">
+          <label>Símbolo
+            <input name="symbol" value="{{ data.config.simbolo_padrao }}" required>
+          </label>
+          <button type="submit">Avaliar fechamento</button>
+        </form>
+        <form method="post" action="{{ url_for('close_safe') }}" class="form">
+          <label>Símbolo
+            <input name="symbol" value="{{ data.config.simbolo_padrao }}" required>
+          </label>
+          <button type="submit">Fechar posição com trava</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Ferramentas operacionais</h2>
+        <form method="post" action="{{ url_for('cleanup_dust') }}" class="form">
+          <button type="submit">Executar limpeza de saldos residuais</button>
+        </form>
+        <form method="post" action="{{ url_for('update_mark_price') }}" class="form">
+          <label>Símbolo
+            <input name="symbol" value="{{ data.config.simbolo_padrao }}" required>
+          </label>
+          <label>Preço de marca (somente paper)
+            <input name="mark_price" placeholder="65000">
+          </label>
+          <button type="submit" {% if data.is_live %}disabled{% endif %}>Atualizar preço manual</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Posições abertas</h2>
+      {% if data.posicoes %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Símbolo</th>
+                <th>Lado</th>
+                <th>Quantidade</th>
+                <th>Preço de entrada</th>
+                <th>Preço de marca</th>
+                <th>Notional entrada</th>
+                <th>Notional marca</th>
+                <th>PnL bruto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for position in data.posicoes %}
+                <tr>
+                  <td>{{ position.symbol }}</td>
+                  <td>{{ position.side }}</td>
+                  <td>{{ position.quantity }}</td>
+                  <td>{{ position.entry_price }}</td>
+                  <td>{{ position.mark_price }}</td>
+                  <td>{{ position.entry_notional }}</td>
+                  <td>{{ position.mark_notional }}</td>
+                  <td>{{ position.gross_pnl }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>Nenhuma posição aberta no momento.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Avaliações de fechamento</h2>
+      {% if data.avaliacoes_fechamento %}
+        <div class="grid two">
+          {% for symbol, breakdown in data.avaliacoes_fechamento.items() %}
+            <article class="subcard">
+              <h3>{{ symbol }}</h3>
+              <dl>
+                <dt>Permitido</dt><dd>{{ breakdown.permitido }}</dd>
+                <dt>Lucro líquido (%)</dt><dd>{{ breakdown.lucro_liquido_pct }}</dd>
+                <dt>Lucro bruto</dt><dd>{{ breakdown.lucro_bruto }}</dd>
+                <dt>Taxa entrada</dt><dd>{{ breakdown.taxa_entrada }}</dd>
+                <dt>Taxa saída</dt><dd>{{ breakdown.taxa_saida }}</dd>
+                <dt>Funding</dt><dd>{{ breakdown.funding }}</dd>
+                <dt>Slippage</dt><dd>{{ breakdown.slippage }}</dd>
+                <dt>Custo total</dt><dd>{{ breakdown.custo_total }}</dd>
+                <dt>Lucro líquido</dt><dd>{{ breakdown.lucro_liquido }}</dd>
+                <dt>Mínimo requerido (%)</dt><dd>{{ breakdown.minimo_pct }}</dd>
+                <dt>Motivo</dt><dd>{{ breakdown.motivo }}</dd>
+              </dl>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>Nenhuma avaliação de fechamento realizada ainda.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Eventos operacionais</h2>
+      {% if data.eventos %}
+        <ul class="event-list">
+          {% for event in data.eventos|reverse %}
+            <li>
+              <span>[{{ event.horario }}]</span>
+              <strong>{{ event.nivel|upper }}</strong>
+              <span>{{ event.mensagem }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>Sem eventos registrados.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
+
