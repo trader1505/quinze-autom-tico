@@ -37,9 +37,27 @@
           <dd>{{ data.config.ativo_base }}</dd>
           <dt>Mínimo de fechamento (%)</dt>
           <dd>{{ data.config.minimo_fechamento_pct }}</dd>
+          <dt>Credenciais carregadas</dt>
+          <dd>{{ data.config.credenciais_configuradas }}</dd>
+          <dt>API Key (mascarada)</dt>
+          <dd>{{ data.config.api_key_mascarada }}</dd>
         </dl>
         <form method="post" action="{{ url_for('execute_cycle') }}">
           <button type="submit">Executar ciclo automático</button>
+        </form>
+        <hr>
+        <h3>Campos de segurança (API Binance)</h3>
+        <form method="post" action="{{ url_for('save_credentials') }}" class="form" autocomplete="off">
+          <label>API Key
+            <input type="password" name="api_key" placeholder="Cole sua API Key" required autocomplete="new-password">
+          </label>
+          <label>API Secret
+            <input type="password" name="api_secret" placeholder="Cole sua API Secret" required autocomplete="new-password">
+          </label>
+          <button type="submit">Salvar credenciais na sessão</button>
+        </form>
+        <form method="post" action="{{ url_for('clear_credentials') }}" class="form">
+          <button type="submit">Limpar credenciais da sessão</button>
         </form>
       </article>
 

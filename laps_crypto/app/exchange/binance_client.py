@@ -60,6 +60,30 @@ class BinanceClient:
     def is_live(self) -> bool:
         return self.execution_mode == "live"
 
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.api_key and self.api_secret)
+
+    @property
+    def masked_api_key(self) -> str:
+        if not self.api_key:
+            return ""
+        if len(self.api_key) <= 6:
+            return "*" * len(self.api_key)
+        return f"{self.api_key[:3]}***{self.api_key[-3:]}"
+
+    def set_credentials(self, api_key: str, api_secret: str) -> None:
+        key = api_key.strip()
+        secret = api_secret.strip()
+        if not key or not secret:
+            raise ValueError("API Key e API Secret devem ser informadas.")
+        self.api_key = key
+        self.api_secret = secret
+
+    def clear_credentials(self) -> None:
+        self.api_key = ""
+        self.api_secret = ""
+
     def get_balance(self, asset: str) -> Decimal:
         if not self.is_live:
             return self.balances.get(asset, Decimal("0"))

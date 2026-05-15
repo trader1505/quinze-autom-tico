@@ -212,6 +212,26 @@ class DashboardRuntime:
             self._append_event(message=message, level="info")
             return ActionOutcome(success=True, message_pt_br=message)
 
+    def save_api_credentials(self, api_key_raw: str, api_secret_raw: str) -> ActionOutcome:
+        with self._lock:
+            try:
+                self.client.set_credentials(api_key=api_key_raw, api_secret=api_secret_raw)
+            except ValueError as exc:
+                return self._outcome_error(str(exc))
+            except Exception as exc:  # noqa: BLE001
+                return self._outcome_error(f"Falha ao salvar credenciais: {exc}")
+
+            message = "Credenciais Binance atualizadas com sucesso (somente memória)."
+            self._append_event(message=message, level="sucesso")
+            return ActionOutcome(success=True, message_pt_br=message)
+
+    def clear_api_credentials(self) -> ActionOutcome:
+        with self._lock:
+            self.client.clear_credentials()
+            message = "Credenciais Binance removidas da memória do painel."
+            self._append_event(message=message, level="info")
+            return ActionOutcome(success=True, message_pt_br=message)
+
     def dashboard_data(self) -> Dict[str, Any]:
         with self._lock:
             snapshot = AccountReader(self.client, self.config.base_asset).read()
@@ -229,6 +249,8 @@ class DashboardRuntime:
                     "simbolo_padrao": self.config.default_symbol,
                     "ativo_base": self.config.base_asset,
                     "minimo_fechamento_pct": self._fmt(self.config.min_close_profit_pct),
+                    "credenciais_configuradas": "SIM" if self.client.has_credentials else "NÃO",
+                    "api_key_mascarada": self.client.masked_api_key or "N/D",
                 },
                 "conta": {
                     "equity": self._fmt(snapshot.equity),

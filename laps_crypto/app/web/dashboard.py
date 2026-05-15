@@ -67,6 +67,21 @@ def create_app(runtime: DashboardRuntime | None = None) -> Flask:
         flash(result.message_pt_br, "sucesso" if result.success else "erro")
         return redirect(url_for("index"))
 
+    @app.post("/acoes/salvar-credenciais")
+    def save_credentials():
+        result = dashboard_runtime.save_api_credentials(
+            api_key_raw=request.form.get("api_key", ""),
+            api_secret_raw=request.form.get("api_secret", ""),
+        )
+        flash(result.message_pt_br, "sucesso" if result.success else "erro")
+        return redirect(url_for("index"))
+
+    @app.post("/acoes/limpar-credenciais")
+    def clear_credentials():
+        result = dashboard_runtime.clear_api_credentials()
+        flash(result.message_pt_br, "sucesso" if result.success else "erro")
+        return redirect(url_for("index"))
+
     return app
 
 

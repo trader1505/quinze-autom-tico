@@ -42,3 +42,32 @@ def test_dashboard_open_order_flow(monkeypatch) -> None:
     assert position is not None
     assert position.quantity == Decimal("0.010")
 
+
+def test_dashboard_save_credentials(monkeypatch) -> None:
+    runtime = _build_runtime(monkeypatch)
+    app = create_app(runtime=runtime)
+    client = app.test_client()
+
+    response = client.post(
+        "/acoes/salvar-credenciais",
+        data={"api_key": "ABCDEF123456", "api_secret": "SECRET123456"},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert runtime.client.has_credentials is True
+    body = response.get_data(as_text=True)
+    assert "Credenciais Binance atualizadas com sucesso" in body
+    assert "ABC***456" in body
+    assert "SECRET123456" not in body
+
+
+def test_dashboard_clear_credentials(monkeypatch) -> None:
+    runtime = _build_runtime(monkeypatch)
+    runtime.client.set_credentials("ABCDEF123456", "SECRET123456")
+    app = create_app(runtime=runtime)
+    client = app.test_client()
+
+    response = client.post("/acoes/limpar-credenciais", follow_redirects=True)
+    assert response.status_code == 200
+    assert runtime.client.has_credentials is False
+
