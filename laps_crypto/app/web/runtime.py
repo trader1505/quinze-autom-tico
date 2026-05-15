@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+import os
 import threading
+import time
 from typing import Any, Dict, List
 
 from ..capital.capital_engine import CapitalEngine
@@ -39,6 +41,10 @@ class DashboardRuntime:
         self._logger = build_logger("laps_crypto_dashboard")
         self._max_events = 120
         self._last_close_breakdown: Dict[str, Dict[str, str]] = {}
+        self._automation_stop = threading.Event()
+        self._automation_thread: threading.Thread | None = None
+        self._automation_last_run_at: str = "-"
+        self._automation_interval_sec: int = int(os.getenv("LAPS_AUTO_INTERVAL_SEC", "30"))
 
     @property
     def config(self):
@@ -62,6 +68,44 @@ class DashboardRuntime:
                 return ActionOutcome(success=False, message_pt_br=message)
             message = "Ciclo automático executado com sucesso."
             self._append_event(message=message, level="sucesso")
+            self._automation_last_run_at = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S")
+            return ActionOutcome(success=True, message_pt_br=message)
+
+    def start_automation(self, interval_raw: str) -> ActionOutcome:
+        with self._lock:
+            if self.is_automation_running:
+                return ActionOutcome(success=True, message_pt_br="Automação já está em execução.")
+            try:
+                interval = int(interval_raw.strip())
+            except (AttributeError, ValueError):
+                interval = self._automation_interval_sec
+            if interval < 5:
+                return self._outcome_error("Intervalo mínimo da automação é de 5 segundos.")
+
+            self._automation_interval_sec = interval
+            self._automation_stop.clear()
+            self._automation_thread = threading.Thread(
+                target=self._automation_loop,
+                name="laps-automation-loop",
+                daemon=True,
+            )
+            self._automation_thread.start()
+            message = f"Automação iniciada com intervalo de {interval} segundos."
+            self._append_event(message=message, level="sucesso")
+            return ActionOutcome(success=True, message_pt_br=message)
+
+    def stop_automation(self) -> ActionOutcome:
+        with self._lock:
+            if not self.is_automation_running:
+                return ActionOutcome(success=True, message_pt_br="Automação já está parada.")
+            self._automation_stop.set()
+            thread = self._automation_thread
+        if thread is not None:
+            thread.join(timeout=3)
+        with self._lock:
+            self._automation_thread = None
+            message = "Automação parada com sucesso."
+            self._append_event(message=message, level="info")
             return ActionOutcome(success=True, message_pt_br=message)
 
     def open_order(self, symbol: str, side_raw: str, quantity_raw: str) -> ActionOutcome:
@@ -252,6 +296,11 @@ class DashboardRuntime:
                     "credenciais_configuradas": "SIM" if self.client.has_credentials else "NÃO",
                     "api_key_mascarada": self.client.masked_api_key or "N/D",
                 },
+                "automacao": {
+                    "ativa": "SIM" if self.is_automation_running else "NÃO",
+                    "intervalo_segundos": str(self._automation_interval_sec),
+                    "ultimo_ciclo": self._automation_last_run_at,
+                },
                 "conta": {
                     "equity": self._fmt(snapshot.equity),
                     "colateral_livre": self._fmt(snapshot.free_collateral),
@@ -302,4 +351,14 @@ class DashboardRuntime:
 
     def _build_executor(self) -> OrderExecutor:
         return OrderExecutor(config=self.config, client=self.client, logger=self._logger)
+
+    @property
+    def is_automation_running(self) -> bool:
+        return self._automation_thread is not None and self._automation_thread.is_alive()
+
+    def _automation_loop(self) -> None:
+        while not self._automation_stop.is_set():
+            self.run_cycle()
+            if self._automation_stop.wait(self._automation_interval_sec):
+                break
 

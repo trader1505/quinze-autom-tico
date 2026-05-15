@@ -41,9 +41,24 @@
           <dd>{{ data.config.credenciais_configuradas }}</dd>
           <dt>API Key (mascarada)</dt>
           <dd>{{ data.config.api_key_mascarada }}</dd>
+          <dt>Automação ativa</dt>
+          <dd>{{ data.automacao.ativa }}</dd>
+          <dt>Intervalo automação (s)</dt>
+          <dd>{{ data.automacao.intervalo_segundos }}</dd>
+          <dt>Último ciclo automático</dt>
+          <dd>{{ data.automacao.ultimo_ciclo }}</dd>
         </dl>
         <form method="post" action="{{ url_for('execute_cycle') }}">
           <button type="submit">Executar ciclo automático</button>
+        </form>
+        <form method="post" action="{{ url_for('start_automation') }}" class="form">
+          <label>Intervalo da automação (segundos)
+            <input name="intervalo_segundos" value="{{ data.automacao.intervalo_segundos }}" required>
+          </label>
+          <button type="submit">Iniciar automação contínua</button>
+        </form>
+        <form method="post" action="{{ url_for('stop_automation') }}" class="form">
+          <button type="submit">Parar automação contínua</button>
         </form>
         <hr>
         <h3>Campos de segurança (API Binance)</h3>

@@ -26,6 +26,20 @@ def create_app(runtime: DashboardRuntime | None = None) -> Flask:
         flash(result.message_pt_br, "sucesso" if result.success else "erro")
         return redirect(url_for("index"))
 
+    @app.post("/acoes/iniciar-automacao")
+    def start_automation():
+        result = dashboard_runtime.start_automation(
+            interval_raw=request.form.get("intervalo_segundos", "30"),
+        )
+        flash(result.message_pt_br, "sucesso" if result.success else "erro")
+        return redirect(url_for("index"))
+
+    @app.post("/acoes/parar-automacao")
+    def stop_automation():
+        result = dashboard_runtime.stop_automation()
+        flash(result.message_pt_br, "sucesso" if result.success else "erro")
+        return redirect(url_for("index"))
+
     @app.post("/acoes/abrir-ordem")
     def open_order():
         result = dashboard_runtime.open_order(

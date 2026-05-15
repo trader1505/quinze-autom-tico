@@ -59,6 +59,7 @@ O painel permite:
 
 - visualizar modo (`paper/live`), conta, risco e posições
 - executar ciclo automático
+- iniciar/parar automação contínua com intervalo configurável
 - abrir ordem manual
 - avaliar fechamento com a trava de lucro líquido
 - fechar posição com segurança (`NET_PROFIT >= +0.1%`)

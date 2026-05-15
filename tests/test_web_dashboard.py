@@ -71,3 +71,23 @@ def test_dashboard_clear_credentials(monkeypatch) -> None:
     assert response.status_code == 200
     assert runtime.client.has_credentials is False
 
+
+def test_dashboard_automation_start_and_stop(monkeypatch) -> None:
+    runtime = _build_runtime(monkeypatch)
+    app = create_app(runtime=runtime)
+    client = app.test_client()
+
+    start_response = client.post(
+        "/acoes/iniciar-automacao",
+        data={"intervalo_segundos": "10"},
+        follow_redirects=True,
+    )
+    assert start_response.status_code == 200
+    assert "Automação iniciada com intervalo de 10 segundos." in start_response.get_data(as_text=True)
+    assert runtime.is_automation_running is True
+
+    stop_response = client.post("/acoes/parar-automacao", follow_redirects=True)
+    assert stop_response.status_code == 200
+    assert "Automação parada com sucesso." in stop_response.get_data(as_text=True)
+    assert runtime.is_automation_running is False
+
