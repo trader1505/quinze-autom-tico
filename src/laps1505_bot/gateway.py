@@ -271,17 +271,21 @@ class BinanceGateway:
         if mark_price <= 0:
             raise ValueError("Invalid mark price")
         spec = self._get_symbol_spec(symbol)
-        effective_notional = max(notional_usdt, spec.min_notional) if spec.min_notional > 0 else notional_usdt
-        qty = effective_notional / mark_price
+        if spec.min_notional > 0 and notional_usdt + 1e-12 < spec.min_notional:
+            raise ValueError(
+                f"Min notional too high for {symbol}: {spec.min_notional} > allowed {notional_usdt}"
+            )
+        qty = notional_usdt / mark_price
+        if qty + 1e-12 < spec.min_qty:
+            raise ValueError(f"Min quantity too high for {symbol}: {spec.min_qty}")
         if spec.step_size > 0:
             qty = math.floor(qty / spec.step_size) * spec.step_size
-            if qty < spec.min_qty:
-                qty = spec.min_qty
-            if spec.min_notional > 0:
-                while qty * mark_price + 1e-12 < spec.min_notional:
-                    qty += spec.step_size
         if qty < spec.min_qty:
             raise ValueError(f"Quantity below minimum for {symbol}: {qty} < {spec.min_qty}")
+        if spec.min_notional > 0 and qty * mark_price + 1e-12 < spec.min_notional:
+            raise ValueError(
+                f"Rounded quantity violates min notional for {symbol}: {qty * mark_price} < {spec.min_notional}"
+            )
         rounded = round(qty, spec.quantity_precision)
         if rounded <= 0:
             raise ValueError(f"Rounded quantity invalid for {symbol}: {rounded}")
