@@ -175,35 +175,66 @@
       `;
     }
 
-    function playCashSound() {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    function getAudioContext() {
+      return new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function playTone(ctx, frequency, start, duration, type = "square", volume = 0.2) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.25);
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.type = type;
+      osc.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.35);
+      osc.start(start);
+      osc.stop(start + duration + 0.02);
+    }
+
+    function playNoiseBurst(ctx, start, duration, volume = 0.12) {
+      const sampleRate = ctx.sampleRate;
+      const buffer = ctx.createBuffer(1, Math.floor(sampleRate * duration), sampleRate);
+      const channelData = buffer.getChannelData(0);
+      for (let i = 0; i < channelData.length; i += 1) {
+        channelData[i] = (Math.random() * 2 - 1) * 0.35;
+      }
+      const source = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      filter.type = "highpass";
+      filter.frequency.setValueAtTime(1800, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      source.connect(filter).connect(gain).connect(ctx.destination);
+      source.start(start);
+      source.stop(start + duration);
+    }
+
+    function playCashSound() {
+      const ctx = getAudioContext();
+      const t0 = ctx.currentTime;
+      // "Jackpot cash" style: fast sparkling highs + chirp noise
+      playTone(ctx, 1200, t0 + 0.00, 0.08, "square", 0.22);
+      playTone(ctx, 1600, t0 + 0.07, 0.08, "square", 0.24);
+      playTone(ctx, 2100, t0 + 0.14, 0.09, "square", 0.26);
+      playTone(ctx, 2600, t0 + 0.22, 0.10, "triangle", 0.25);
+      playNoiseBurst(ctx, t0 + 0.03, 0.12, 0.1);
+      playNoiseBurst(ctx, t0 + 0.18, 0.14, 0.1);
     }
 
     function playRecoverySound() {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(220, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
-      osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.4);
+      const ctx = getAudioContext();
+      const t0 = ctx.currentTime;
+      // "Recovery hit" style: aggressive rising stabs
+      playTone(ctx, 420, t0 + 0.00, 0.10, "sawtooth", 0.2);
+      playTone(ctx, 760, t0 + 0.08, 0.10, "sawtooth", 0.22);
+      playTone(ctx, 1180, t0 + 0.16, 0.11, "sawtooth", 0.24);
+      playTone(ctx, 1650, t0 + 0.25, 0.12, "square", 0.24);
+      playNoiseBurst(ctx, t0 + 0.06, 0.10, 0.09);
+      playNoiseBurst(ctx, t0 + 0.23, 0.12, 0.11);
     }
 
     function testTpSound() {
