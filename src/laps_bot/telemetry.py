@@ -63,14 +63,17 @@ class TelemetryStore:
         with self._lock:
             return self._read_state()
 
-    def read_recent_events(self, limit: int = 200) -> list[dict[str, Any]]:
-        if limit <= 0:
+    def read_events(self, limit: int | None = 200) -> list[dict[str, Any]]:
+        if limit is not None and limit <= 0:
             return []
         with self._lock:
             if not self.events_path.exists():
                 return []
             with self.events_path.open("r", encoding="utf-8") as f:
-                lines = deque(f, maxlen=limit)
+                if limit is None:
+                    lines = list(f)
+                else:
+                    lines = deque(f, maxlen=limit)
         events: list[dict[str, Any]] = []
         for line in lines:
             raw = line.strip()
@@ -82,3 +85,6 @@ class TelemetryStore:
                 # Skip malformed lines to keep panel resilient.
                 continue
         return events
+
+    def read_recent_events(self, limit: int = 200) -> list[dict[str, Any]]:
+        return self.read_events(limit=limit)

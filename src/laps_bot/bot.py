@@ -292,6 +292,9 @@ class LapsBot:
                     "side": position.side,
                     "roi_pct": roi,
                     "target_roi_pct": self.config.target_roi_pct,
+                    "estimated_realized_pnl_usdt": position.unrealized_pnl,
+                    "position_margin_usdt": position.initial_margin,
+                    "close_reason": "tp_target",
                 },
             )
             self._emit(
@@ -387,6 +390,9 @@ class LapsBot:
                     "symbol": position.symbol,
                     "side": position.side,
                     "roi_pct": roi,
+                    "estimated_realized_pnl_usdt": position.unrealized_pnl,
+                    "position_margin_usdt": position.initial_margin,
+                    "close_reason": "reinforcement_break_even_recovered",
                 },
             )
             self._emit(

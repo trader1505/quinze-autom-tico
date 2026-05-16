@@ -115,15 +115,18 @@ Depois acesse:
 - `LAPS_PANEL_HOST`: host do painel (default `0.0.0.0`)
 - `LAPS_PANEL_PORT`: porta do painel (default `8080`)
 
-## Painel Bloomberg (preto/dourado)
+## Painel Bloomberg Pro (preto/dourado)
 
 O painel mostra em tempo real:
 
-- status do bot
-- simbolo/lado da posicao
-- ROI atual
-- quantidade de topups usados
-- feed completo de eventos
+- status operacional do bot
+- contagem de operacoes abertas + split long/short
+- lucro fechado total (TP + recuperacoes 3x fechadas)
+- TPs fechados e valor acumulado
+- recuperacoes 3x em andamento e concluidas
+- volume de topups de margem
+- tabela detalhada de posicoes ativas
+- timeline completa de funcoes executadas
 
 ### Sons no painel
 
