@@ -440,6 +440,27 @@ class LapsBot:
         crossover = trend_signal.crossover
         base_trend = self._base_side(position.side)
 
+        # If bot restarts while trend is already opposite, recover alert state.
+        if (
+            not state.reinforcement_alert
+            and not state.reinforcement_done
+            and market_trend != Trend.FLAT
+            and market_trend != base_trend
+        ):
+            state.reinforcement_alert = True
+            self._emit(
+                "reinforcement_alert",
+                "Opposite trend active; 3x alert state recovered while waiting return crossover.",
+                payload={
+                    "symbol": position.symbol,
+                    "position_side": position.side,
+                    "trend_now": market_trend.value,
+                    "crossover": crossover.value if crossover else None,
+                    "entry_side": base_trend.value,
+                },
+                severity="warning",
+            )
+
         if crossover is not None and crossover != base_trend:
             if not state.reinforcement_alert:
                 LOG.warning(
