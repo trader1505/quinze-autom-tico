@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import BotSettings
 from .gateway import Gateway
@@ -60,7 +60,7 @@ class TradingEngine:
             for event in risk_result.events:
                 self._append_event(event)
 
-            self.last_cycle_at = datetime.utcnow()
+            self.last_cycle_at = datetime.now(timezone.utc)
             self.last_error = None
         except Exception as exc:  # pragma: no cover - defensive runtime path
             self.last_error = str(exc)

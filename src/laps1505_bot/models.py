@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -84,7 +84,7 @@ class TransferIntent:
 class EngineEvent:
     type: str
     message: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict[str, float | str] = field(default_factory=dict)
 
 
