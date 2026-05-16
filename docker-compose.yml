@@ -1,0 +1,9 @@
+services:
+  laps1505-bot:
+    build: .
+    container_name: laps1505-bot
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

@@ -1,0 +1,10 @@
+[project]
+name = "laps1505-bot"
+version = "1.0.0"
+description = "LAPS 1505 Binance futures bot"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
