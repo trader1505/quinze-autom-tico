@@ -131,6 +131,14 @@ O instalador:
 - para serviços antigos conflitantes
 - sobe containers e inicia o motor automaticamente
 
+### Reinstalação total (apaga tudo no VPS e sobe limpo)
+
+Se o ambiente ficou inconsistente e você quer reset completo:
+
+```bash
+sudo bash scripts/nuke_and_reinstall_live.sh
+```
+
 ### Deploy manual
 
 ```bash
