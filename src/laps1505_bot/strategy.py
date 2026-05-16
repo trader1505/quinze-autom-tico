@@ -56,7 +56,6 @@ class StrategyEngine:
             state.pending_3x = False
             state.recovery_anchor_side = Side.FLAT
             state.recovery_base_notional = 0.0
-            state.open_operations = 0
             return StrategyResult(orders=orders, state=state, events=events)
 
         # Initial entry when flat and trend is confirmed.
@@ -75,12 +74,12 @@ class StrategyEngine:
             state.recovery_anchor_side = signal.side
             state.recovery_base_notional = entry_notional
             state.pending_3x = False
-            state.open_operations = 1
+            planned_slot = state.open_operations + 1
             events.append(
                 EngineEvent(
                     type="entry",
                     message=f"Entrada inicial {signal.side.value}",
-                    payload={"notional": entry_notional, "slot": state.open_operations},
+                    payload={"notional": entry_notional, "slot": planned_slot},
                 )
             )
             return StrategyResult(orders=orders, state=state, events=events)
@@ -118,13 +117,13 @@ class StrategyEngine:
                 )
             )
             state.pending_3x = False
-            state.open_operations = min(self.settings.max_concurrent_operations, state.open_operations + 1)
             recovery_executed = True
+            planned_slot = min(self.settings.max_concurrent_operations, state.open_operations + 1)
             events.append(
                 EngineEvent(
                     type="recovery_fired",
                     message="Ordem 3x de recuperação executada",
-                    payload={"notional": recovery_notional, "slot": state.open_operations},
+                    payload={"notional": recovery_notional, "slot": planned_slot},
                 )
             )
 
@@ -137,6 +136,7 @@ class StrategyEngine:
             and state.open_operations < self.settings.max_concurrent_operations
         ):
             slot_notional = self._base_entry_notional(balances)
+            planned_slot = state.open_operations + 1
             orders.append(
                 OrderIntent(
                     symbol=self.settings.symbol,
@@ -147,12 +147,11 @@ class StrategyEngine:
                     reason="slot_scale_entry",
                 )
             )
-            state.open_operations += 1
             events.append(
                 EngineEvent(
                     type="slot_opened",
                     message="Nova operação simultânea adicionada",
-                    payload={"notional": slot_notional, "slot": state.open_operations},
+                    payload={"notional": slot_notional, "slot": planned_slot},
                 )
             )
 

@@ -15,6 +15,7 @@ def test_initial_entry_uses_1_percent_of_free_futures():
     assert len(result.orders) == 1
     assert result.orders[0].side == Side.LONG
     assert result.orders[0].notional_usdt == 1.0  # max(20*1%, min_notional=1)
+    assert result.state.open_operations == 0
 
 
 def test_tp_100_percent_closes_position():
@@ -78,9 +79,10 @@ def test_slot_scale_entry_up_to_max_operations():
     result = strategy.evaluate(signal, balances, position, state)
     assert len(result.orders) == 1
     assert result.orders[0].reason == "slot_scale_entry"
-    assert result.state.open_operations == 30
+    assert result.state.open_operations == 29
     assert any(event.type == "slot_opened" for event in result.events)
 
+    result.state.open_operations = 30
     second = strategy.evaluate(signal, balances, position, result.state)
     assert len(second.orders) == 0
     assert second.state.open_operations == 30

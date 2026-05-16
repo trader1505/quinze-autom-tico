@@ -76,6 +76,28 @@ def test_engine_cycle_generates_entry_event():
     assert any(event.type == "entry" for event in engine.events)
 
 
+def test_engine_does_not_count_unfilled_orders_as_open_operations():
+    settings = BotSettings(dry_run=True, min_notional_usdt=1.0)
+    gateway = SimulationGateway(
+        close_prices=list(range(100, 170)),
+        balances=BalanceSnapshot(
+            spot_usdt=80.0,
+            futures_wallet_usdt=20.0,
+            futures_free_usdt=20.0,
+            margin_ratio=0.2,
+        ),
+        position=Position(side=Side.FLAT, quantity=0, entry_price=0, mark_price=160),
+    )
+    gateway.place_order = lambda intent: []  # type: ignore[assignment]
+    engine = TradingEngine(settings, gateway)
+
+    engine.cycle_once()
+
+    assert engine.state.open_operations == 0
+    assert len(engine.state.managed_operations) == 0
+    assert any(event.type == "order_not_filled" for event in engine.events)
+
+
 def test_engine_status_contains_expected_sections():
     settings = BotSettings(dry_run=True)
     gateway = SimulationGateway(

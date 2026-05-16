@@ -116,13 +116,35 @@ class TradingEngine:
         quantity = total_qty if total_qty > 0 else (notional / price if price > 0 else 0.0)
         return price, quantity, notional
 
+    def _has_effective_fill(self, responses: list[dict]) -> bool:
+        if not responses:
+            return False
+        for response in responses:
+            if bool(response.get("simulated")) and str(response.get("status", "")).upper() == "FILLED":
+                return True
+            if self._safe_float(response.get("executedQty")) > 0:
+                return True
+            if self._safe_float(response.get("cumQuote")) > 0:
+                return True
+        return False
+
     def _register_operation_from_order(self, intent, responses: list[dict], mark_price: float) -> None:
         if intent.reduce_only:
-            if intent.reason == "tp_100_roi":
+            if intent.reason == "tp_100_roi" and self._has_effective_fill(responses):
                 self._reset_managed_operations()
             return
 
         if intent.reason not in {"initial_entry", "slot_scale_entry", "recovery_3x"}:
+            return
+
+        if not self._has_effective_fill(responses):
+            self._append_event(
+                EngineEvent(
+                    type="order_not_filled",
+                    message="Ordem enviada sem execução efetiva",
+                    payload={"reason": intent.reason, "notional": intent.notional_usdt},
+                )
+            )
             return
 
         entry_price, quantity, notional = self._extract_execution_metrics(
