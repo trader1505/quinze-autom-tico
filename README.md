@@ -106,6 +106,24 @@ API:
 
 ## Deploy em VPS (Docker)
 
+### Instalação em 1 comando (modo real com API segura)
+
+Este comando baixa e executa o instalador completo.  
+As chaves `BINANCE_API_KEY` e `BINANCE_API_SECRET` são solicitadas com entrada oculta (não aparecem na tela).
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/trader1505/quinze-autom-tico/cursor/laps1505-bot-binance-5cc7/scripts/install_real.sh)"
+```
+
+O instalador:
+- instala Docker + Compose (se necessário)
+- clona/atualiza o projeto em `/opt/laps1505`
+- cria `.env` com permissão `600`
+- para serviços antigos conflitantes
+- sobe containers e inicia o motor automaticamente
+
+### Deploy manual
+
 ```bash
 docker compose up -d --build
 ```
