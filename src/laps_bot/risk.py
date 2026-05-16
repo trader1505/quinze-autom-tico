@@ -26,5 +26,7 @@ def split_8020(total_usdt: float, spot_pct: float, futures_pct: float) -> tuple[
 
 
 def validate_config(config: BotConfig) -> None:
-    if config.max_positions != 1:
-        raise ValueError("This first live version supports exactly 1 simultaneous position.")
+    if config.max_positions <= 0:
+        raise ValueError("LAPS_MAX_POSITIONS must be greater than zero.")
+    if config.max_positions > len(config.symbols):
+        raise ValueError("LAPS_MAX_POSITIONS cannot be greater than the number of configured symbols.")

@@ -61,8 +61,9 @@ class ExchangeGateway:
         balance = self.fetch_spot_balance()
         return float(balance["free"].get("USDT", 0.0))
 
-    def fetch_open_position(self, symbols: Iterable[str]) -> PositionState | None:
+    def fetch_open_positions(self, symbols: Iterable[str]) -> list[PositionState]:
         positions = self.exchange.fetch_positions(list(symbols))
+        open_positions: list[PositionState] = []
         for item in positions:
             contracts = float(item.get("contracts") or 0.0)
             if contracts <= 0:
@@ -74,15 +75,24 @@ class ExchangeGateway:
             entry_price = float(item.get("entryPrice") or 0.0)
             unrealized_pnl = float(item.get("unrealizedPnl") or 0.0)
             initial_margin = float(item.get("initialMargin") or 0.0)
-            return PositionState(
-                symbol=symbol,
-                side=side,
-                contracts=contracts,
-                entry_price=entry_price,
-                unrealized_pnl=unrealized_pnl,
-                initial_margin=initial_margin,
+            open_positions.append(
+                PositionState(
+                    symbol=symbol,
+                    side=side,
+                    contracts=contracts,
+                    entry_price=entry_price,
+                    unrealized_pnl=unrealized_pnl,
+                    initial_margin=initial_margin,
+                )
             )
-        return None
+        open_positions.sort(key=lambda p: p.symbol)
+        return open_positions
+
+    def fetch_open_position(self, symbols: Iterable[str]) -> PositionState | None:
+        positions = self.fetch_open_positions(symbols)
+        if not positions:
+            return None
+        return positions[0]
 
     def _amount_step(self, symbol: str) -> Decimal:
         market = self.exchange.market(symbol)

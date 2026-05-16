@@ -148,6 +148,10 @@
           <div id="status" class="value">-</div>
         </div>
         <div class="card">
+          <div class="label">Operacoes abertas</div>
+          <div id="openPositions" class="value">0</div>
+        </div>
+        <div class="card">
           <div class="label">Simbolo</div>
           <div id="symbol" class="value">-</div>
         </div>
@@ -264,6 +268,7 @@
 
       function renderState(state) {
         setText("status", state.status || "-");
+        setText("openPositions", state.open_positions_count ?? 0);
         setText("symbol", state.symbol || "-");
         setText("side", state.side || "-");
         const roiEl = document.getElementById("roi");

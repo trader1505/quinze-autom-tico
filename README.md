@@ -9,7 +9,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 - rebalanceamento de capital **80% spot / 20% futuros**
 - protecao por topup de margem em queda
 - logica de reforco **3x** apos confirmacao de tendencia
-- versao atual com **1 operacao simultanea** (base para subir para 30)
+- suporte a multiplas operacoes simultaneas por simbolo (`LAPS_MAX_POSITIONS`)
 
 > Aviso tecnico: nenhum sistema de trading garante "zero erro". Este codigo foi estruturado com validacoes, logs e controles defensivos, mas voce deve testar primeiro em sandbox e usar monitoramento continuo.
 
@@ -101,7 +101,7 @@ Depois acesse:
 ## Principais variaveis
 
 - `LAPS_SYMBOLS`: simbolo principal e fallback (ex.: `BTC/USDT:USDT,ETH/USDT:USDT`)
-- `LAPS_MAX_POSITIONS`: nesta versao deve ficar `1`
+- `LAPS_MAX_POSITIONS`: quantidade maxima de operacoes simultaneas (nao pode ultrapassar o numero de simbolos em `LAPS_SYMBOLS`)
 - `LAPS_BALANCE_RISK_PCT`: `%` da entrada inicial (default `1`)
 - `LAPS_LEVERAGE`: alavancagem usada para transformar alvo de margem em notional (default `125`)
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
