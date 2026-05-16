@@ -106,6 +106,7 @@ Depois acesse:
 - `LAPS_LEVERAGE`: alavancagem usada para transformar alvo de margem em notional (default `125`)
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: gatilho topup (default `-60`)
+- `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho minimo de margem (% da conta/posicao) para permitir topup (default `60`)
 - `LAPS_REBALANCE_RECOVERY_PCT`: gatilho de recuperacao (default `-31`)
 - `LAPS_REINFORCEMENT_MULTIPLIER`: multiplicador do reforco (default `3`)
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
@@ -125,6 +126,7 @@ O painel mostra em tempo real:
 - TPs fechados e valor acumulado
 - recuperacoes 3x em andamento e concluidas
 - volume de topups de margem
+- status atual do rebalance spot/futuros e alvo 80/20
 - tabela detalhada de posicoes ativas
 - timeline completa de funcoes executadas
 

@@ -33,6 +33,7 @@ class RiskTests(unittest.TestCase):
             leverage=125,
             target_roi_pct=100.0,
             add_margin_trigger_pct=-60.0,
+            margin_ratio_trigger_pct=60.0,
             rebalance_recovery_pct=-31.0,
             reinforcement_multiplier=3.0,
             spot_target_pct=80.0,
@@ -53,9 +54,11 @@ class RiskTests(unittest.TestCase):
         self.assertAlmostEqual(margin_topup_usdt(50, 20), 10.0)
 
     def test_margin_trigger(self) -> None:
-        self.assertTrue(should_add_margin(-70, -60, 0, 4))
-        self.assertFalse(should_add_margin(-50, -60, 0, 4))
-        self.assertFalse(should_add_margin(-70, -60, 4, 4))
+        self.assertTrue(should_add_margin(-70, -60, 65, 60, 0, 4))
+        self.assertFalse(should_add_margin(-70, -60, 55, 60, 0, 4))
+        self.assertFalse(should_add_margin(-50, -60, 65, 60, 0, 4))
+        self.assertFalse(should_add_margin(-70, -60, None, 60, 0, 4))
+        self.assertFalse(should_add_margin(-70, -60, 65, 60, 4, 4))
 
     def test_recovery(self) -> None:
         self.assertTrue(should_rebalance_after_recovery(-30, -31, 1))

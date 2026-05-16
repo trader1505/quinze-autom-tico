@@ -11,8 +11,21 @@ def margin_topup_usdt(spot_available_usdt: float, topup_pct: float) -> float:
     return (spot_available_usdt * topup_pct) / 100.0
 
 
-def should_add_margin(roi_pct: float, trigger_pct: float, topups_used: int, max_topups: int) -> bool:
-    return roi_pct <= trigger_pct and topups_used < max_topups
+def should_add_margin(
+    roi_pct: float,
+    trigger_pct: float,
+    margin_ratio_pct: float | None,
+    margin_ratio_trigger_pct: float,
+    topups_used: int,
+    max_topups: int,
+) -> bool:
+    if topups_used >= max_topups:
+        return False
+    if roi_pct > trigger_pct:
+        return False
+    if margin_ratio_pct is None:
+        return False
+    return margin_ratio_pct >= margin_ratio_trigger_pct
 
 
 def should_rebalance_after_recovery(roi_pct: float, recovery_pct: float, topups_used: int) -> bool:

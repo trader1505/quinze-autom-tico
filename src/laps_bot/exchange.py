@@ -75,6 +75,19 @@ class ExchangeGateway:
             entry_price = float(item.get("entryPrice") or 0.0)
             unrealized_pnl = float(item.get("unrealizedPnl") or 0.0)
             initial_margin = float(item.get("initialMargin") or 0.0)
+            mark_price_raw = item.get("markPrice")
+            mark_price = float(mark_price_raw) if mark_price_raw is not None else None
+            liquidation_price_raw = item.get("liquidationPrice")
+            liquidation_price = float(liquidation_price_raw) if liquidation_price_raw is not None else None
+            margin_ratio_raw = item.get("marginRatio")
+            if margin_ratio_raw is None:
+                margin_ratio_raw = (item.get("info") or {}).get("marginRatio")
+            margin_ratio_pct: float | None
+            if margin_ratio_raw is None:
+                margin_ratio_pct = None
+            else:
+                raw = float(margin_ratio_raw)
+                margin_ratio_pct = raw * 100 if raw <= 1.0 else raw
             open_positions.append(
                 PositionState(
                     symbol=symbol,
@@ -83,6 +96,9 @@ class ExchangeGateway:
                     entry_price=entry_price,
                     unrealized_pnl=unrealized_pnl,
                     initial_margin=initial_margin,
+                    mark_price=mark_price,
+                    liquidation_price=liquidation_price,
+                    margin_ratio_pct=margin_ratio_pct,
                 )
             )
         open_positions.sort(key=lambda p: p.symbol)

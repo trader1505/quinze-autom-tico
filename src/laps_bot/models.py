@@ -18,6 +18,9 @@ class PositionState:
     entry_price: float
     unrealized_pnl: float
     initial_margin: float
+    mark_price: float | None = None
+    liquidation_price: float | None = None
+    margin_ratio_pct: float | None = None
 
     @property
     def roi_pct(self) -> float:

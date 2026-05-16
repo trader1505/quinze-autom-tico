@@ -277,6 +277,11 @@
           <div id="longShortSplit" class="detail">Long 0 / Short 0</div>
         </div>
         <div class="card">
+          <div class="label">Rebalance Spot/Futuros</div>
+          <div id="rebalanceActual" class="value gold">0.00% / 0.00%</div>
+          <div id="rebalanceTarget" class="detail">Alvo: 80.00% / 20.00%</div>
+        </div>
+        <div class="card">
           <div class="label">Lucro Fechado Total</div>
           <div id="closedProfitTotal" class="value gold">$0.000000</div>
           <div id="tpAndRecoveryProfit" class="detail">TP $0.000000 + 3x $0.000000</div>
@@ -487,6 +492,12 @@
         setText("updatedAt", `Atualizado: ${state.updated_at || "-"}`);
         setText("openPositions", String(state.open_positions_count ?? 0));
         setText("longShortSplit", `Long ${summary.open_long || 0} / Short ${summary.open_short || 0}`);
+        const spotPct = Number(state.spot_pct_actual || 0);
+        const futuresPct = Number(state.futures_pct_actual || 0);
+        const spotTarget = Number(state.spot_target_pct || 80);
+        const futuresTarget = Number(state.futures_target_pct || 20);
+        setText("rebalanceActual", `${spotPct.toFixed(2)}% / ${futuresPct.toFixed(2)}%`);
+        setText("rebalanceTarget", `Alvo: ${spotTarget.toFixed(2)}% / ${futuresTarget.toFixed(2)}%`);
 
         setText("closedProfitTotal", fmtMoney(summary.closed_profit_total_usdt));
         setText(

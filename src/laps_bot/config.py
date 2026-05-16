@@ -33,6 +33,7 @@ class BotConfig:
     leverage: int
     target_roi_pct: float
     add_margin_trigger_pct: float
+    margin_ratio_trigger_pct: float
     rebalance_recovery_pct: float
     reinforcement_multiplier: float
     spot_target_pct: float
@@ -67,6 +68,7 @@ def load_config() -> BotConfig:
         leverage=_read_int("LAPS_LEVERAGE", 20),
         target_roi_pct=_read_float("LAPS_TARGET_ROI_PCT", 100.0),
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
+        margin_ratio_trigger_pct=_read_float("LAPS_MARGIN_RATIO_TRIGGER_PCT", 60.0),
         rebalance_recovery_pct=_read_float("LAPS_REBALANCE_RECOVERY_PCT", -31.0),
         reinforcement_multiplier=_read_float("LAPS_REINFORCEMENT_MULTIPLIER", 3.0),
         spot_target_pct=_read_float("LAPS_SPOT_TARGET_PCT", 80.0),
@@ -87,6 +89,8 @@ def load_config() -> BotConfig:
         raise ValueError("LAPS_BALANCE_RISK_PCT must be positive.")
     if cfg.leverage <= 0:
         raise ValueError("LAPS_LEVERAGE must be positive.")
+    if cfg.margin_ratio_trigger_pct <= 0:
+        raise ValueError("LAPS_MARGIN_RATIO_TRIGGER_PCT must be positive.")
     if cfg.panel_port <= 0:
         raise ValueError("LAPS_PANEL_PORT must be positive.")
     return cfg

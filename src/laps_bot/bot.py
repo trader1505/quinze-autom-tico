@@ -60,14 +60,44 @@ class LapsBot:
             if symbol not in open_symbols:
                 del self.position_states[symbol]
 
+    def _capital_snapshot(self) -> dict[str, float]:
+        spot_total = self.exchange.total_spot_usdt()
+        futures_total = self.exchange.total_futures_usdt()
+        total = spot_total + futures_total
+        if total <= 0:
+            spot_pct = 0.0
+            futures_pct = 0.0
+        else:
+            spot_pct = (spot_total / total) * 100
+            futures_pct = (futures_total / total) * 100
+        return {
+            "spot_total_usdt": spot_total,
+            "futures_total_usdt": futures_total,
+            "capital_total_usdt": total,
+            "spot_pct_actual": spot_pct,
+            "futures_pct_actual": futures_pct,
+            "spot_target_pct": self.config.spot_target_pct,
+            "futures_target_pct": self.config.futures_target_pct,
+        }
+
     def _sync_state(
         self,
         status: str,
         positions: list[PositionState] | None = None,
         trends: dict[str, Trend] | None = None,
+        capital: dict[str, float] | None = None,
     ) -> None:
         positions = positions or []
         trends = trends or {}
+        capital = capital or {
+            "spot_total_usdt": 0.0,
+            "futures_total_usdt": 0.0,
+            "capital_total_usdt": 0.0,
+            "spot_pct_actual": 0.0,
+            "futures_pct_actual": 0.0,
+            "spot_target_pct": self.config.spot_target_pct,
+            "futures_target_pct": self.config.futures_target_pct,
+        }
         if not positions:
             self.telemetry.update_state(
                 status=status,
@@ -84,6 +114,7 @@ class LapsBot:
                 initial_entry_usdt=0.0,
                 open_positions_count=0,
                 positions=[],
+                **capital,
             )
             return
 
@@ -97,6 +128,9 @@ class LapsBot:
                 "entry_price": p.entry_price,
                 "roi_pct": p.roi_pct,
                 "unrealized_pnl": p.unrealized_pnl,
+                "mark_price": p.mark_price,
+                "liquidation_price": p.liquidation_price,
+                "margin_ratio_pct": p.margin_ratio_pct,
                 "trend": trends.get(p.symbol).value if trends.get(p.symbol) else None,
                 "topups_used": self.position_states.get(p.symbol, PositionRuntimeState()).topups_used,
                 "reinforcement_alert": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_alert,
@@ -120,6 +154,7 @@ class LapsBot:
             initial_entry_usdt=lead_state.initial_entry_usdt,
             open_positions_count=len(positions),
             positions=position_payload,
+            **capital,
         )
 
     def _signal_for_symbol(self, symbol: str) -> Trend:
@@ -276,6 +311,9 @@ class LapsBot:
                 "side": position.side,
                 "contracts": position.contracts,
                 "entry_price": position.entry_price,
+                "mark_price": position.mark_price,
+                "liquidation_price": position.liquidation_price,
+                "margin_ratio_pct": position.margin_ratio_pct,
                 "roi_pct": roi,
                 "unrealized_pnl": position.unrealized_pnl,
             },
@@ -293,6 +331,7 @@ class LapsBot:
                     payload={"symbol": position.symbol, "error": str(exc)},
                     severity="error",
                 )
+            capital_after = self._capital_snapshot()
             self._emit(
                 "tp_hit",
                 "Target ROI reached; position closed and capital rebalanced 80/20.",
@@ -304,14 +343,14 @@ class LapsBot:
                     "estimated_realized_pnl_usdt": position.unrealized_pnl,
                     "position_margin_usdt": position.initial_margin,
                     "close_reason": "tp_target",
+                    **capital_after,
                 },
             )
             self._emit(
                 "cash_rebalance",
                 "Cash rebalance executed after TP.",
                 payload={
-                    "spot_target_pct": self.config.spot_target_pct,
-                    "futures_target_pct": self.config.futures_target_pct,
+                    **capital_after,
                 },
             )
             self.position_states.pop(position.symbol, None)
@@ -321,6 +360,8 @@ class LapsBot:
         if should_add_margin(
             roi,
             self.config.add_margin_trigger_pct,
+            position.margin_ratio_pct,
+            self.config.margin_ratio_trigger_pct,
             state.topups_used,
             self.config.max_topups,
         ):
@@ -330,8 +371,10 @@ class LapsBot:
                     self.exchange.transfer_usdt(topup_amount, "spot", "future")
                     state.topups_used += 1
                     LOG.warning(
-                        "Negative ROI trigger reached (%.4f%%). Added %.8f USDT margin. Topups: %s/%s",
+                        "Margin trigger reached on %s (ROI %.4f%%, margin ratio %.4f%%). Added %.8f USDT. Topups: %s/%s",
+                        position.symbol,
                         roi,
+                        position.margin_ratio_pct if position.margin_ratio_pct is not None else -1.0,
                         topup_amount,
                         state.topups_used,
                         self.config.max_topups,
@@ -342,6 +385,8 @@ class LapsBot:
                         payload={
                             "symbol": position.symbol,
                             "roi_pct": roi,
+                            "margin_ratio_pct": position.margin_ratio_pct,
+                            "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
                             "topup_amount_usdt": topup_amount,
                             "topups_used": state.topups_used,
                             "max_topups": self.config.max_topups,
@@ -356,11 +401,27 @@ class LapsBot:
                         payload={
                             "symbol": position.symbol,
                             "roi_pct": roi,
+                            "margin_ratio_pct": position.margin_ratio_pct,
+                            "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
                             "topup_amount_usdt": topup_amount,
                             "error": str(exc),
                         },
                         severity="error",
                     )
+        elif roi <= self.config.add_margin_trigger_pct and (
+            position.margin_ratio_pct is None or position.margin_ratio_pct < self.config.margin_ratio_trigger_pct
+        ):
+            self._emit(
+                "margin_topped_up_skipped",
+                "Topup skipped because margin ratio trigger was not reached.",
+                payload={
+                    "symbol": position.symbol,
+                    "roi_pct": roi,
+                    "roi_trigger_pct": self.config.add_margin_trigger_pct,
+                    "margin_ratio_pct": position.margin_ratio_pct,
+                    "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
+                },
+            )
 
         if should_rebalance_after_recovery(roi, self.config.rebalance_recovery_pct, state.topups_used):
             try:
@@ -375,6 +436,7 @@ class LapsBot:
                 )
             else:
                 state.topups_used = 0
+                capital_after = self._capital_snapshot()
                 self._emit(
                     "recovery_rebalanced",
                     "ROI recovered; 80/20 rebalance executed.",
@@ -382,6 +444,7 @@ class LapsBot:
                         "symbol": position.symbol,
                         "roi_pct": roi,
                         "recovery_threshold_pct": self.config.rebalance_recovery_pct,
+                        **capital_after,
                     },
                 )
                 LOG.info("Recovered above %.2f%% ROI. 80/20 rebalance completed.", self.config.rebalance_recovery_pct)
@@ -425,6 +488,7 @@ class LapsBot:
                     payload={"symbol": position.symbol, "error": str(exc)},
                     severity="error",
                 )
+            capital_after = self._capital_snapshot()
             self._emit(
                 "reinforcement_recovered_close",
                 "3x reinforced position recovered to break-even and was closed.",
@@ -435,14 +499,14 @@ class LapsBot:
                     "estimated_realized_pnl_usdt": position.unrealized_pnl,
                     "position_margin_usdt": position.initial_margin,
                     "close_reason": "reinforcement_break_even_recovered",
+                    **capital_after,
                 },
             )
             self._emit(
                 "cash_rebalance",
                 "Cash rebalance executed after 3x recovery close.",
                 payload={
-                    "spot_target_pct": self.config.spot_target_pct,
-                    "futures_target_pct": self.config.futures_target_pct,
+                    **capital_after,
                 },
             )
             self.position_states.pop(position.symbol, None)
@@ -475,7 +539,7 @@ class LapsBot:
                 self._drop_closed_states(open_symbols)
 
         if not positions:
-            self._sync_state("waiting_entry")
+            self._sync_state("waiting_entry", capital=self._capital_snapshot())
             return
 
         trends: dict[str, Trend] = {}
@@ -497,10 +561,11 @@ class LapsBot:
         refreshed_positions = self.exchange.fetch_open_positions(self.config.symbols)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
         self._drop_closed_states(refreshed_symbols)
+        capital = self._capital_snapshot()
         if refreshed_positions:
-            self._sync_state("positions_active", positions=refreshed_positions, trends=trends)
+            self._sync_state("positions_active", positions=refreshed_positions, trends=trends, capital=capital)
         else:
-            self._sync_state("no_open_position")
+            self._sync_state("no_open_position", capital=capital)
 
     def run_forever(self) -> None:
         LOG.info(
@@ -509,7 +574,7 @@ class LapsBot:
             self.config.timeframe,
             self.config.max_positions,
         )
-        self._sync_state("running")
+        self._sync_state("running", capital=self._capital_snapshot())
         self._emit(
             "bot_started",
             "LAPS bot started.",
@@ -519,6 +584,7 @@ class LapsBot:
                 "risk_pct": self.config.balance_risk_pct,
                 "target_roi_pct": self.config.target_roi_pct,
                 "leverage": self.config.leverage,
+                "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
                 "max_positions": self.config.max_positions,
             },
         )
@@ -528,5 +594,5 @@ class LapsBot:
             except Exception as exc:
                 LOG.exception("Fatal cycle error.")
                 self._emit("cycle_error", f"Fatal cycle error: {exc}", severity="error")
-                self._sync_state("error")
+                self._sync_state("error", capital=self._capital_snapshot())
             time.sleep(self.config.poll_seconds)
