@@ -127,6 +127,7 @@ O painel mostra em tempo real:
 - recuperacoes 3x em andamento e concluidas
 - volume de topups de margem
 - status atual do rebalance spot/futuros e alvo 80/20
+- saldo total e saldo livre de spot/futuros em USDT
 - tabela detalhada de posicoes ativas
 - timeline completa de funcoes executadas
 

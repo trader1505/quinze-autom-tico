@@ -282,6 +282,16 @@
           <div id="rebalanceTarget" class="detail">Alvo: 80.00% / 20.00%</div>
         </div>
         <div class="card">
+          <div class="label">Saldo Spot (USDT)</div>
+          <div id="spotBalance" class="value gold">$0.000000</div>
+          <div id="spotFree" class="detail">Livre: $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">Saldo Futuros (USDT)</div>
+          <div id="futuresBalance" class="value gold">$0.000000</div>
+          <div id="futuresFree" class="detail">Livre: $0.000000</div>
+        </div>
+        <div class="card">
           <div class="label">Lucro Fechado Total</div>
           <div id="closedProfitTotal" class="value gold">$0.000000</div>
           <div id="tpAndRecoveryProfit" class="detail">TP $0.000000 + 3x $0.000000</div>
@@ -496,8 +506,16 @@
         const futuresPct = Number(state.futures_pct_actual || 0);
         const spotTarget = Number(state.spot_target_pct || 80);
         const futuresTarget = Number(state.futures_target_pct || 20);
+        const spotBalance = Number(state.spot_total_usdt || 0);
+        const futuresBalance = Number(state.futures_total_usdt || 0);
+        const spotFree = Number(state.spot_free_usdt || 0);
+        const futuresFree = Number(state.futures_free_usdt || 0);
         setText("rebalanceActual", `${spotPct.toFixed(2)}% / ${futuresPct.toFixed(2)}%`);
         setText("rebalanceTarget", `Alvo: ${spotTarget.toFixed(2)}% / ${futuresTarget.toFixed(2)}%`);
+        setText("spotBalance", fmtMoney(spotBalance));
+        setText("spotFree", `Livre: ${fmtMoney(spotFree)}`);
+        setText("futuresBalance", fmtMoney(futuresBalance));
+        setText("futuresFree", `Livre: ${fmtMoney(futuresFree)}`);
 
         setText("closedProfitTotal", fmtMoney(summary.closed_profit_total_usdt));
         setText(

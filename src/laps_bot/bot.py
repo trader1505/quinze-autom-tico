@@ -63,6 +63,8 @@ class LapsBot:
     def _capital_snapshot(self) -> dict[str, float]:
         spot_total = self.exchange.total_spot_usdt()
         futures_total = self.exchange.total_futures_usdt()
+        spot_free = self.exchange.free_spot_usdt()
+        futures_free = self.exchange.free_futures_usdt()
         total = spot_total + futures_total
         if total <= 0:
             spot_pct = 0.0
@@ -73,12 +75,39 @@ class LapsBot:
         return {
             "spot_total_usdt": spot_total,
             "futures_total_usdt": futures_total,
+            "spot_free_usdt": spot_free,
+            "futures_free_usdt": futures_free,
             "capital_total_usdt": total,
             "spot_pct_actual": spot_pct,
             "futures_pct_actual": futures_pct,
             "spot_target_pct": self.config.spot_target_pct,
             "futures_target_pct": self.config.futures_target_pct,
         }
+
+    def _enforce_rebalance_guard(self, reason: str) -> None:
+        try:
+            result = rebalance_80_20(self.exchange, self.config)
+        except Exception as exc:
+            LOG.warning("Rebalance guard failed: %s", exc)
+            self._emit(
+                "cash_rebalance_failed",
+                "Continuous 80/20 rebalance guard failed.",
+                payload={"reason": reason, "error": str(exc)},
+                severity="error",
+            )
+            return
+        if result.get("changed"):
+            capital = self._capital_snapshot()
+            self._emit(
+                "cash_rebalance",
+                "Continuous 80/20 rebalance guard executed transfer.",
+                payload={
+                    "reason": reason,
+                    "moved_amount_usdt": result.get("moved_amount_usdt", 0.0),
+                    "direction": result.get("direction", "none"),
+                    **capital,
+                },
+            )
 
     def _sync_state(
         self,
@@ -92,6 +121,8 @@ class LapsBot:
         capital = capital or {
             "spot_total_usdt": 0.0,
             "futures_total_usdt": 0.0,
+            "spot_free_usdt": 0.0,
+            "futures_free_usdt": 0.0,
             "capital_total_usdt": 0.0,
             "spot_pct_actual": 0.0,
             "futures_pct_actual": 0.0,
@@ -539,6 +570,7 @@ class LapsBot:
                 self._drop_closed_states(open_symbols)
 
         if not positions:
+            self._enforce_rebalance_guard("waiting_entry")
             self._sync_state("waiting_entry", capital=self._capital_snapshot())
             return
 
@@ -558,6 +590,7 @@ class LapsBot:
                 )
                 continue
 
+        self._enforce_rebalance_guard("active_cycle")
         refreshed_positions = self.exchange.fetch_open_positions(self.config.symbols)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
         self._drop_closed_states(refreshed_symbols)

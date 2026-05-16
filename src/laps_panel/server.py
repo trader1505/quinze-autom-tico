@@ -76,6 +76,14 @@ def _build_summary(state: dict, events: list[dict]) -> dict:
         "last_tp_at": last_tp_at,
         "last_recovery_close_at": last_recovery_close_at,
         "last_cash_rebalance_at": last_cash_rebalance_at,
+        "spot_total_usdt": _float_or_zero(state.get("spot_total_usdt")),
+        "futures_total_usdt": _float_or_zero(state.get("futures_total_usdt")),
+        "spot_free_usdt": _float_or_zero(state.get("spot_free_usdt")),
+        "futures_free_usdt": _float_or_zero(state.get("futures_free_usdt")),
+        "spot_pct_actual": _float_or_zero(state.get("spot_pct_actual")),
+        "futures_pct_actual": _float_or_zero(state.get("futures_pct_actual")),
+        "spot_target_pct": _float_or_zero(state.get("spot_target_pct")),
+        "futures_target_pct": _float_or_zero(state.get("futures_target_pct")),
     }
 
 
