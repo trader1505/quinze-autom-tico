@@ -27,9 +27,21 @@ class ExchangeGateway:
                 },
             }
         )
+        self.spot_exchange = ccxt.binance(
+            {
+                "apiKey": config.api_key,
+                "secret": config.api_secret,
+                "enableRateLimit": True,
+                "options": {
+                    "defaultType": "spot",
+                },
+            }
+        )
         if config.sandbox:
             self.exchange.set_sandbox_mode(True)
+            self.spot_exchange.set_sandbox_mode(True)
         self.exchange.load_markets()
+        self.spot_exchange.load_markets()
 
     def fetch_closes(self, symbol: str, timeframe: str, limit: int) -> list[float]:
         candles = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -43,7 +55,8 @@ class ExchangeGateway:
         return self.exchange.fetch_balance({"type": "future"})
 
     def fetch_spot_balance(self) -> dict:
-        return self.exchange.fetch_balance({"type": "spot"})
+        # Spot balance must come from spot API to avoid futures-only wallet projection.
+        return self.spot_exchange.fetch_balance()
 
     def free_futures_usdt(self) -> float:
         balance = self.fetch_futures_balance()
