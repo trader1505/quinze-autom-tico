@@ -5,7 +5,7 @@ from laps1505_bot.models import BalanceSnapshot, Position, Side
 from laps1505_bot.strategy import StrategyResult
 
 
-def test_engine_processes_strategy_once_per_interval_bucket():
+def test_engine_processes_strategy_on_each_poll_cycle():
     settings = BotSettings(dry_run=True)
     gateway = SimulationGateway(
         close_prices=list(range(100, 170)),
@@ -30,7 +30,7 @@ def test_engine_processes_strategy_once_per_interval_bucket():
     engine.cycle_once()
     engine.cycle_once()
 
-    assert call_counter["count"] == 1
+    assert call_counter["count"] == 2
 
 
 def test_engine_syncs_existing_open_position_on_first_cycle():

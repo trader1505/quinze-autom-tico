@@ -24,6 +24,9 @@ Bot profissional para operar **Binance Futures** com:
   - entra na direção da tendência;
   - tamanho = `1%` do saldo livre em Futures (`availableBalance`);
   - mínimo configurável (`BOT_MIN_NOTIONAL`) para evitar ordem muito pequena.
+- Enquanto a tendência confirmada continuar no mesmo lado e houver margem livre:
+  - o bot adiciona novas entradas de `1%` do livre;
+  - até o limite de operações simultâneas (`BOT_MAX_CONCURRENT_OPS`, padrão `30`).
 
 ### 3) Motor TP (100% ROI)
 - Se `ROI >= 100%`:
@@ -88,6 +91,7 @@ Variáveis principais:
 - `BINANCE_API_KEY`, `BINANCE_API_SECRET` para modo live
 - `BOT_SYMBOL=BTCUSDT`
 - `BOT_INTERVAL=15m`
+- `BOT_MAX_CONCURRENT_OPS=30`
 
 ## Rodando
 

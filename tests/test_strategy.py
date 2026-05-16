@@ -65,3 +65,22 @@ def test_recovery_armed_event_emitted_once_while_pending():
 
     assert any(event.type == "recovery_armed" for event in first.events)
     assert not any(event.type == "recovery_armed" for event in second.events)
+
+
+def test_slot_scale_entry_up_to_max_operations():
+    settings = BotSettings(max_concurrent_operations=30, min_notional_usdt=1.0, entry_fraction_of_free_futures=0.01)
+    strategy = StrategyEngine(settings)
+    balances = BalanceSnapshot(spot_usdt=80, futures_wallet_usdt=20, futures_free_usdt=20, margin_ratio=0.2)
+    position = Position(side=Side.LONG, quantity=0.04, entry_price=100, mark_price=100)
+    signal = TrendSignal(side=Side.LONG, ema_short=101, ema_long=100, confirmed=True)
+    state = BotState(recovery_anchor_side=Side.LONG, recovery_base_notional=4.0, pending_3x=False, open_operations=29)
+
+    result = strategy.evaluate(signal, balances, position, state)
+    assert len(result.orders) == 1
+    assert result.orders[0].reason == "slot_scale_entry"
+    assert result.state.open_operations == 30
+    assert any(event.type == "slot_opened" for event in result.events)
+
+    second = strategy.evaluate(signal, balances, position, result.state)
+    assert len(second.orders) == 0
+    assert second.state.open_operations == 30

@@ -59,10 +59,16 @@ class TradingEngine:
 
     def _sync_state_with_open_position(self, position: Position) -> None:
         if position.side == Side.FLAT:
-            if self.state.pending_3x or self.state.recovery_anchor_side != Side.FLAT or self.state.recovery_base_notional > 0:
+            if (
+                self.state.pending_3x
+                or self.state.recovery_anchor_side != Side.FLAT
+                or self.state.recovery_base_notional > 0
+                or self.state.open_operations > 0
+            ):
                 self.state.pending_3x = False
                 self.state.recovery_anchor_side = Side.FLAT
                 self.state.recovery_base_notional = 0.0
+                self.state.open_operations = 0
                 self._append_event(
                     EngineEvent(
                         type="position_state_reset",
@@ -76,11 +82,16 @@ class TradingEngine:
             self.state.recovery_anchor_side = position.side
             self.state.recovery_base_notional = open_notional
             self.state.pending_3x = False
+            self.state.open_operations = max(self.state.open_operations, 1)
             self._append_event(
                 EngineEvent(
                     type="position_synced",
                     message="Posição aberta detectada e sincronizada para gerenciamento",
-                    payload={"side": position.side.value, "notional": open_notional},
+                    payload={
+                        "side": position.side.value,
+                        "notional": open_notional,
+                        "open_operations": self.state.open_operations,
+                    },
                 )
             )
             return
@@ -88,17 +99,24 @@ class TradingEngine:
         if self.state.recovery_anchor_side != position.side and not self.state.pending_3x:
             self.state.recovery_anchor_side = position.side
             self.state.recovery_base_notional = open_notional
+            self.state.open_operations = 1
             self._append_event(
                 EngineEvent(
                     type="position_reanchored",
                     message="Mudança externa de posição detectada, âncora atualizada",
-                    payload={"side": position.side.value, "notional": open_notional},
+                    payload={
+                        "side": position.side.value,
+                        "notional": open_notional,
+                        "open_operations": self.state.open_operations,
+                    },
                 )
             )
             return
 
         if self.state.recovery_base_notional <= 0:
             self.state.recovery_base_notional = open_notional
+        if self.state.open_operations <= 0:
+            self.state.open_operations = 1
 
     def cycle_once(self) -> None:
         try:
@@ -117,19 +135,18 @@ class TradingEngine:
 
             now_utc = datetime.now(timezone.utc)
             current_bucket = self._current_interval_bucket(now_utc)
-            if self.last_strategy_bucket_at != current_bucket:
-                signal = detect_trend(
-                    closed_closes,
-                    self.settings.ema_short_period,
-                    self.settings.ema_long_period,
-                )
-                strategy_result = self.strategy.evaluate(signal, balances, position, self.state)
-                self.state = strategy_result.state
-                for order in strategy_result.orders:
-                    self.gateway.place_order(order)
-                for event in strategy_result.events:
-                    self._append_event(event)
-                self.last_strategy_bucket_at = current_bucket
+            signal = detect_trend(
+                closed_closes,
+                self.settings.ema_short_period,
+                self.settings.ema_long_period,
+            )
+            strategy_result = self.strategy.evaluate(signal, balances, position, self.state)
+            self.state = strategy_result.state
+            for order in strategy_result.orders:
+                self.gateway.place_order(order)
+            for event in strategy_result.events:
+                self._append_event(event)
+            self.last_strategy_bucket_at = current_bucket
 
             risk_result = self.risk.evaluate(balances)
             for transfer in risk_result.transfers:
@@ -185,6 +202,8 @@ class TradingEngine:
                 "pending_3x": self.state.pending_3x,
                 "recovery_anchor_side": self.state.recovery_anchor_side.value,
                 "recovery_base_notional": self.state.recovery_base_notional,
+                "open_operations": self.state.open_operations,
+                "max_concurrent_operations": self.settings.max_concurrent_operations,
             },
             "events": recent_events,
         }

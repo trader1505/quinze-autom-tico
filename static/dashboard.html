@@ -58,6 +58,7 @@
       <div>Pending 3x: <span id="pending3x">false</span></div>
       <div>Âncora: <span id="anchor">FLAT</span></div>
       <div>Base notional: <span id="base-notional">0</span></div>
+      <div>Ops abertas: <span id="open-ops">0</span>/<span id="max-ops">0</span></div>
     </article>
     <article class="card" style="grid-column: 1 / -1">
       <h3>Eventos (tempo real)</h3>
@@ -138,6 +139,8 @@
       setText("pending3x", String(data.state.pending_3x));
       setText("anchor", data.state.recovery_anchor_side);
       setText("base-notional", formatUsdt(data.state.recovery_base_notional));
+      setText("open-ops", String(data.state.open_operations ?? 0));
+      setText("max-ops", String(data.state.max_concurrent_operations ?? 0));
 
       const events = data.events || [];
       const lines = events.map(e => `[${e.created_at}] ${e.type}: ${e.message}`).join("\n");

@@ -30,6 +30,7 @@ class BotSettings:
     tp_roi_target: float = 1.0
     recovery_multiplier: float = 3.0
     order_slices: int = 3
+    max_concurrent_operations: int = 30
     margin_stress_threshold: float = 0.60
     margin_recovery_threshold: float = 0.30
     min_notional_usdt: float = 5.0
@@ -53,6 +54,7 @@ class BotSettings:
             tp_roi_target=_env_float("BOT_TP_ROI", 1.0),
             recovery_multiplier=_env_float("BOT_RECOVERY_MULTIPLIER", 3.0),
             order_slices=_env_int("BOT_ORDER_SLICES", 3),
+            max_concurrent_operations=_env_int("BOT_MAX_CONCURRENT_OPS", 30),
             margin_stress_threshold=_env_float("BOT_MARGIN_STRESS", 0.60),
             margin_recovery_threshold=_env_float("BOT_MARGIN_RECOVERY", 0.30),
             min_notional_usdt=_env_float("BOT_MIN_NOTIONAL", 5.0),

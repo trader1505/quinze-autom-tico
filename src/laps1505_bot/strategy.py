@@ -32,6 +32,7 @@ class StrategyEngine:
     ) -> StrategyResult:
         orders: list[OrderIntent] = []
         events: list[EngineEvent] = []
+        recovery_executed = False
 
         # ROI 100% => close all position and realize full trade.
         if position.side != Side.FLAT and position.roi >= self.settings.tp_roi_target:
@@ -55,6 +56,7 @@ class StrategyEngine:
             state.pending_3x = False
             state.recovery_anchor_side = Side.FLAT
             state.recovery_base_notional = 0.0
+            state.open_operations = 0
             return StrategyResult(orders=orders, state=state, events=events)
 
         # Initial entry when flat and trend is confirmed.
@@ -73,11 +75,12 @@ class StrategyEngine:
             state.recovery_anchor_side = signal.side
             state.recovery_base_notional = entry_notional
             state.pending_3x = False
+            state.open_operations = 1
             events.append(
                 EngineEvent(
                     type="entry",
                     message=f"Entrada inicial {signal.side.value}",
-                    payload={"notional": entry_notional},
+                    payload={"notional": entry_notional, "slot": state.open_operations},
                 )
             )
             return StrategyResult(orders=orders, state=state, events=events)
@@ -115,11 +118,41 @@ class StrategyEngine:
                 )
             )
             state.pending_3x = False
+            state.open_operations = min(self.settings.max_concurrent_operations, state.open_operations + 1)
+            recovery_executed = True
             events.append(
                 EngineEvent(
                     type="recovery_fired",
                     message="Ordem 3x de recuperação executada",
-                    payload={"notional": recovery_notional},
+                    payload={"notional": recovery_notional, "slot": state.open_operations},
+                )
+            )
+
+        # Scale additional concurrent operations up to configured limit.
+        if (
+            signal.confirmed
+            and signal.side == position.side
+            and not state.pending_3x
+            and not recovery_executed
+            and state.open_operations < self.settings.max_concurrent_operations
+        ):
+            slot_notional = self._base_entry_notional(balances)
+            orders.append(
+                OrderIntent(
+                    symbol=self.settings.symbol,
+                    side=signal.side,
+                    notional_usdt=slot_notional,
+                    reduce_only=False,
+                    slices=self.settings.order_slices,
+                    reason="slot_scale_entry",
+                )
+            )
+            state.open_operations += 1
+            events.append(
+                EngineEvent(
+                    type="slot_opened",
+                    message="Nova operação simultânea adicionada",
+                    payload={"notional": slot_notional, "slot": state.open_operations},
                 )
             )
 

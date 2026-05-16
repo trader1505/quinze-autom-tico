@@ -94,4 +94,5 @@ class BotState:
     recovery_anchor_side: Side = Side.FLAT
     recovery_base_notional: float = 0.0
     pending_3x: bool = False
+    open_operations: int = 0
     last_event: EngineEvent | None = None
