@@ -34,7 +34,6 @@ class BotConfig:
     target_roi_pct: float
     add_margin_trigger_pct: float
     margin_ratio_trigger_pct: float
-    rebalance_recovery_pct: float
     reinforcement_multiplier: float
     spot_target_pct: float
     futures_target_pct: float
@@ -69,7 +68,6 @@ def load_config() -> BotConfig:
         target_roi_pct=_read_float("LAPS_TARGET_ROI_PCT", 100.0),
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
         margin_ratio_trigger_pct=_read_float("LAPS_MARGIN_RATIO_TRIGGER_PCT", 60.0),
-        rebalance_recovery_pct=_read_float("LAPS_REBALANCE_RECOVERY_PCT", -31.0),
         reinforcement_multiplier=_read_float("LAPS_REINFORCEMENT_MULTIPLIER", 3.0),
         spot_target_pct=_read_float("LAPS_SPOT_TARGET_PCT", 80.0),
         futures_target_pct=_read_float("LAPS_FUTURES_TARGET_PCT", 20.0),

@@ -12,7 +12,6 @@ from laps_bot.rebalance import rebalance_80_20
 from laps_bot.risk import (
     margin_topup_usdt,
     should_add_margin,
-    should_rebalance_after_recovery,
     target_entry_usdt,
     validate_config,
 )
@@ -83,31 +82,6 @@ class LapsBot:
             "spot_target_pct": self.config.spot_target_pct,
             "futures_target_pct": self.config.futures_target_pct,
         }
-
-    def _enforce_rebalance_guard(self, reason: str) -> None:
-        try:
-            result = rebalance_80_20(self.exchange, self.config)
-        except Exception as exc:
-            LOG.warning("Rebalance guard failed: %s", exc)
-            self._emit(
-                "cash_rebalance_failed",
-                "Continuous 80/20 rebalance guard failed.",
-                payload={"reason": reason, "error": str(exc)},
-                severity="error",
-            )
-            return
-        if result.get("changed"):
-            capital = self._capital_snapshot()
-            self._emit(
-                "cash_rebalance",
-                "Continuous 80/20 rebalance guard executed transfer.",
-                payload={
-                    "reason": reason,
-                    "moved_amount_usdt": result.get("moved_amount_usdt", 0.0),
-                    "direction": result.get("direction", "none"),
-                    **capital,
-                },
-            )
 
     def _sync_state(
         self,
@@ -461,32 +435,6 @@ class LapsBot:
                 },
             )
 
-        if should_rebalance_after_recovery(roi, self.config.rebalance_recovery_pct, state.topups_used):
-            try:
-                rebalance_80_20(self.exchange, self.config)
-            except Exception as exc:
-                LOG.warning("Recovery rebalance failed on %s: %s", position.symbol, exc)
-                self._emit(
-                    "cash_rebalance_failed",
-                    "Recovery rebalance failed.",
-                    payload={"symbol": position.symbol, "error": str(exc)},
-                    severity="error",
-                )
-            else:
-                state.topups_used = 0
-                capital_after = self._capital_snapshot()
-                self._emit(
-                    "recovery_rebalanced",
-                    "ROI recovered; 80/20 rebalance executed.",
-                    payload={
-                        "symbol": position.symbol,
-                        "roi_pct": roi,
-                        "recovery_threshold_pct": self.config.rebalance_recovery_pct,
-                        **capital_after,
-                    },
-                )
-                LOG.info("Recovered above %.2f%% ROI. 80/20 rebalance completed.", self.config.rebalance_recovery_pct)
-
         trend_signal = self._signal_for_symbol(position.symbol)
         market_trend = trend_signal.trend
         crossover = trend_signal.crossover
@@ -592,7 +540,6 @@ class LapsBot:
                 self._drop_closed_states(open_symbols)
 
         if not positions:
-            self._enforce_rebalance_guard("waiting_entry")
             self._sync_state("waiting_entry", capital=self._capital_snapshot())
             return
 
@@ -612,7 +559,6 @@ class LapsBot:
                 )
                 continue
 
-        self._enforce_rebalance_guard("active_cycle")
         refreshed_positions = self.exchange.fetch_open_positions(self.config.symbols)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
         self._drop_closed_states(refreshed_symbols)

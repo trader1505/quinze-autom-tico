@@ -34,7 +34,6 @@ class RiskTests(unittest.TestCase):
             target_roi_pct=100.0,
             add_margin_trigger_pct=-60.0,
             margin_ratio_trigger_pct=60.0,
-            rebalance_recovery_pct=-31.0,
             reinforcement_multiplier=3.0,
             spot_target_pct=80.0,
             futures_target_pct=20.0,

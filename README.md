@@ -25,14 +25,15 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
    - tenta executar margem com valor **exato**
    - se o simbolo principal nao suporta exato por regra de lote/notional, escaneia simbolos de fallback definidos em `LAPS_SYMBOLS`.
 4. Quando ROI da posicao atingir **+100%**, fecha 100% da posicao.
-5. Apos fechar, executa rebalanceamento para manter **80/20 (spot/futuros)**.
+5. Apos fechar no TP, executa rebalanceamento para manter **80/20 (spot/futuros)**.
 6. Se ROI cair ate **-60%**, transfere **20% do spot livre** para futuros (maximo de 4 topups).
-7. Quando recuperar acima de **-31%**, rebalanceia imediatamente para 80/20.
-8. Regra 3x:
+7. Regra 3x:
    - exige cruzamento EMA contra a direcao da entrada (alerta)
    - depois exige novo cruzamento EMA voltando para a direcao original
    - somente apos essa sequencia de cruzamentos executa reforco de **3x** sobre a entrada inicial
    - apos reforco, quando ROI voltar para >= 0, fecha 100% para liberar margem
+
+> O bot nao faz rebalance continuo por tempo/ciclo. Movimentacao de capital ocorre apenas em TP e topup de emergencia.
 
 ## Estrutura
 
@@ -108,7 +109,6 @@ Depois acesse:
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: gatilho topup (default `-60`)
 - `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho minimo de margem (% da conta/posicao) para permitir topup (default `60`)
-- `LAPS_REBALANCE_RECOVERY_PCT`: gatilho de recuperacao (default `-31`)
 - `LAPS_REINFORCEMENT_MULTIPLIER`: multiplicador do reforco (default `3`)
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
 - `LAPS_MARGIN_TOPUP_PCT`: percentual transferido no topup (default `20`)
