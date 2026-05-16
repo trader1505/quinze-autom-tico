@@ -3,7 +3,7 @@
 Implementacao inicial de um bot para operar futuros com regras fixas:
 
 - timeframe **15m**
-- medias moveis simples **12 e 26**
+- medias moveis exponenciais (EMA) **12 e 26**
 - entrada com **1% do saldo livre de futuros (margem usada)**
 - alvo de fechamento no **ROI +100%**
 - rebalanceamento de capital **80% spot / 20% futuros**
@@ -15,9 +15,9 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 
 ## Estrategia implementada
 
-1. O bot calcula tendencia no M15 com SMA(12) e SMA(26):
-   - SMA12 > SMA26 => tendencia LONG
-   - SMA12 < SMA26 => tendencia SHORT
+1. O bot calcula tendencia no M15 com EMA(12) e EMA(26):
+   - EMA12 > EMA26 => tendencia LONG
+   - EMA12 < EMA26 => tendencia SHORT
 2. Se nao houver posicao aberta, abre imediatamente uma operacao na direcao atual.
 3. Tamanho da entrada:
    - usa **1% do saldo livre de futuros**
@@ -29,8 +29,9 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 6. Se ROI cair ate **-60%**, transfere **20% do spot livre** para futuros (maximo de 4 topups).
 7. Quando recuperar acima de **-31%**, rebalanceia imediatamente para 80/20.
 8. Regra 3x:
-   - se a tendencia virar contra a posicao, entra em alerta
-   - quando a tendencia voltar para a mesma direcao original, executa reforco de **3x** sobre a entrada inicial
+   - exige cruzamento EMA contra a direcao da entrada (alerta)
+   - depois exige novo cruzamento EMA voltando para a direcao original
+   - somente apos essa sequencia de cruzamentos executa reforco de **3x** sobre a entrada inicial
    - apos reforco, quando ROI voltar para >= 0, fecha 100% para liberar margem
 
 ## Estrutura

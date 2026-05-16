@@ -16,7 +16,7 @@ from laps_bot.risk import (
     target_entry_usdt,
     validate_config,
 )
-from laps_bot.strategy import resolve_trend
+from laps_bot.strategy import TrendSignal, resolve_trend
 from laps_bot.telemetry import TelemetryStore
 
 LOG = logging.getLogger(__name__)
@@ -188,22 +188,28 @@ class LapsBot:
             **capital,
         )
 
-    def _signal_for_symbol(self, symbol: str) -> Trend:
-        candles_needed = self.config.slow_ma + 5
-        closes = self.exchange.fetch_closes(symbol, self.config.timeframe, candles_needed)
-        trend = resolve_trend(closes, self.config)
+    def _signal_for_symbol(self, symbol: str) -> TrendSignal:
+        candles_needed = self.config.slow_ma + 50
+        closes = self.exchange.fetch_closes(symbol, self.config.timeframe, candles_needed + 1)
+        # Ignore current forming candle to avoid premature crossover triggers.
+        if len(closes) > candles_needed:
+            closes = closes[:-1]
+        signal = resolve_trend(closes, self.config)
         self._emit(
             "trend_evaluated",
-            "Trend evaluated from M15 moving averages.",
+            "Trend evaluated from M15 EMA crossover model.",
             payload={
                 "symbol": symbol,
                 "timeframe": self.config.timeframe,
-                "fast_ma": self.config.fast_ma,
-                "slow_ma": self.config.slow_ma,
-                "trend": trend.value,
+                "fast_ema_period": self.config.fast_ma,
+                "slow_ema_period": self.config.slow_ma,
+                "trend": signal.trend.value,
+                "crossover": signal.crossover.value if signal.crossover else None,
+                "fast_ema": signal.fast_ema,
+                "slow_ema": signal.slow_ema,
             },
         )
-        return trend
+        return signal
 
     def _base_side(self, side: str) -> Trend:
         return Trend.LONG if side == "long" else Trend.SHORT
@@ -249,7 +255,8 @@ class LapsBot:
             LOG.warning("Entry skipped: %s", exc)
             self._emit("entry_skipped", str(exc), severity="warning")
             return False
-        trend = self._signal_for_symbol(symbol)
+        trend_signal = self._signal_for_symbol(symbol)
+        trend = trend_signal.trend
         if trend == Trend.FLAT:
             LOG.info("Signal is FLAT on %s. Waiting.", symbol)
             self._emit(
@@ -480,30 +487,45 @@ class LapsBot:
                 )
                 LOG.info("Recovered above %.2f%% ROI. 80/20 rebalance completed.", self.config.rebalance_recovery_pct)
 
-        market_trend = self._signal_for_symbol(position.symbol)
+        trend_signal = self._signal_for_symbol(position.symbol)
+        market_trend = trend_signal.trend
+        crossover = trend_signal.crossover
         base_trend = self._base_side(position.side)
 
-        if market_trend != Trend.FLAT and market_trend != base_trend:
+        if crossover is not None and crossover != base_trend:
             if not state.reinforcement_alert:
                 LOG.warning(
-                    "Trend reversed against open %s on %s. Waiting for same-direction confirmation.",
+                    "Opposite EMA crossover detected against %s on %s. Waiting for same-direction crossover before 3x.",
                     position.side,
                     position.symbol,
                 )
                 self._emit(
                     "reinforcement_alert",
-                    "Trend reversed against position; waiting for re-confirmation.",
+                    "Opposite EMA crossover detected; waiting return crossover in entry direction.",
                     payload={
                         "symbol": position.symbol,
                         "position_side": position.side,
                         "trend_now": market_trend.value,
+                        "crossover": crossover.value,
+                        "entry_side": base_trend.value,
                     },
                     severity="warning",
                 )
             state.reinforcement_alert = True
             return market_trend
 
-        if state.reinforcement_alert and market_trend == base_trend and not state.reinforcement_done:
+        if state.reinforcement_alert and crossover == base_trend and not state.reinforcement_done:
+            self._emit(
+                "reinforcement_crossover_confirmed",
+                "Entry-direction EMA crossover confirmed; executing 3x reinforcement.",
+                payload={
+                    "symbol": position.symbol,
+                    "position_side": position.side,
+                    "crossover": crossover.value,
+                    "entry_side": base_trend.value,
+                },
+                severity="warning",
+            )
             self._handle_reinforcement(position.symbol, base_trend, state)
             return market_trend
 
