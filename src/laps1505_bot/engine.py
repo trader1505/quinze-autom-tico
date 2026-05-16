@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .config import BotSettings
 from .gateway import Gateway
 from .indicators import detect_trend
-from .models import BotState, EngineEvent
+from .models import BotState, EngineEvent, Position, Side
 from .risk import RiskEngine
 from .strategy import StrategyEngine
 
@@ -57,6 +57,49 @@ class TradingEngine:
             self.state.last_event = event
             self.events = self.events[-200:]
 
+    def _sync_state_with_open_position(self, position: Position) -> None:
+        if position.side == Side.FLAT:
+            if self.state.pending_3x or self.state.recovery_anchor_side != Side.FLAT or self.state.recovery_base_notional > 0:
+                self.state.pending_3x = False
+                self.state.recovery_anchor_side = Side.FLAT
+                self.state.recovery_base_notional = 0.0
+                self._append_event(
+                    EngineEvent(
+                        type="position_state_reset",
+                        message="Posição zerada detectada, estado interno normalizado",
+                    )
+                )
+            return
+
+        open_notional = max(position.notional, self.settings.min_notional_usdt)
+        if self.state.recovery_anchor_side == Side.FLAT:
+            self.state.recovery_anchor_side = position.side
+            self.state.recovery_base_notional = open_notional
+            self.state.pending_3x = False
+            self._append_event(
+                EngineEvent(
+                    type="position_synced",
+                    message="Posição aberta detectada e sincronizada para gerenciamento",
+                    payload={"side": position.side.value, "notional": open_notional},
+                )
+            )
+            return
+
+        if self.state.recovery_anchor_side != position.side and not self.state.pending_3x:
+            self.state.recovery_anchor_side = position.side
+            self.state.recovery_base_notional = open_notional
+            self._append_event(
+                EngineEvent(
+                    type="position_reanchored",
+                    message="Mudança externa de posição detectada, âncora atualizada",
+                    payload={"side": position.side.value, "notional": open_notional},
+                )
+            )
+            return
+
+        if self.state.recovery_base_notional <= 0:
+            self.state.recovery_base_notional = open_notional
+
     def cycle_once(self) -> None:
         try:
             closes = self.gateway.get_recent_closes(
@@ -70,6 +113,7 @@ class TradingEngine:
             balances = self.gateway.get_balances()
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
+            self._sync_state_with_open_position(position)
 
             now_utc = datetime.now(timezone.utc)
             current_bucket = self._current_interval_bucket(now_utc)

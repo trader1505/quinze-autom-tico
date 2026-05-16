@@ -38,6 +38,7 @@ Bot profissional para operar **Binance Futures** com:
   - entra com `3x` do notional base da operação;
   - também em 3 fatias;
   - dispara evento sonoro de recuperação.
+- Ao iniciar o bot, se já existir posição aberta na Binance, o estado interno é sincronizado automaticamente para gerenciar essa posição existente.
 
 ### 5) Motor de tesouraria e risco (Spot/Futures)
 - Objetivo contínuo: manter **80/20** no capital total.

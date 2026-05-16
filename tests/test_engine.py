@@ -33,6 +33,27 @@ def test_engine_processes_strategy_once_per_interval_bucket():
     assert call_counter["count"] == 1
 
 
+def test_engine_syncs_existing_open_position_on_first_cycle():
+    settings = BotSettings(dry_run=True, min_notional_usdt=1.0)
+    gateway = SimulationGateway(
+        close_prices=list(range(100, 170)),
+        balances=BalanceSnapshot(
+            spot_usdt=80.0,
+            futures_wallet_usdt=20.0,
+            futures_free_usdt=20.0,
+            margin_ratio=0.2,
+        ),
+        position=Position(side=Side.LONG, quantity=10, entry_price=150, mark_price=160),
+    )
+    engine = TradingEngine(settings, gateway)
+
+    engine.cycle_once()
+
+    assert engine.state.recovery_anchor_side == Side.LONG
+    assert engine.state.recovery_base_notional > 0
+    assert any(event.type == "position_synced" for event in engine.events)
+
+
 def test_engine_cycle_generates_entry_event():
     settings = BotSettings(dry_run=True, min_notional_usdt=1.0)
     gateway = SimulationGateway(
