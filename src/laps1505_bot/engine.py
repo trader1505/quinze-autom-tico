@@ -69,6 +69,76 @@ class TradingEngine:
         self.state.open_operations = 0
         self.state.next_operation_id = 1
 
+    def _operations_signature(self, operations: list[dict]) -> list[tuple[str, float, float]]:
+        return [
+            (
+                str(operation.get("side", "FLAT")),
+                round(self._safe_float(operation.get("entry_price")), 8),
+                round(self._safe_float(operation.get("quantity")), 8),
+            )
+            for operation in operations
+        ]
+
+    def _normalize_exchange_lots(self, lots: list[dict], fallback_position: Position) -> list[dict]:
+        normalized: list[dict] = []
+        for lot in lots:
+            side = str(lot.get("side", "FLAT"))
+            if side not in {Side.LONG.value, Side.SHORT.value}:
+                continue
+            qty = self._safe_float(lot.get("quantity"))
+            entry = self._safe_float(lot.get("entry_price"))
+            if qty <= 0 or entry <= 0:
+                continue
+            normalized.append(
+                {
+                    "side": side,
+                    "entry_price": entry,
+                    "quantity": qty,
+                    "notional_usdt": self._safe_float(lot.get("notional_usdt"), qty * entry),
+                    "reason": str(lot.get("reason", "exchange_trade_lot")),
+                    "opened_at": str(lot.get("opened_at", datetime.now(timezone.utc).isoformat())),
+                }
+            )
+
+        if not normalized and fallback_position.side != Side.FLAT and fallback_position.quantity > 0:
+            normalized.append(
+                {
+                    "side": fallback_position.side.value,
+                    "entry_price": fallback_position.entry_price,
+                    "quantity": fallback_position.quantity,
+                    "notional_usdt": max(
+                        fallback_position.quantity * fallback_position.entry_price,
+                        self.settings.min_notional_usdt,
+                    ),
+                    "reason": "position_fallback",
+                    "opened_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        return normalized
+
+    def _reconcile_managed_operations(self, position: Position) -> None:
+        exchange_lots = self.gateway.get_open_lots(self.settings.symbol)
+        normalized = self._normalize_exchange_lots(exchange_lots, position)
+        old_signature = self._operations_signature(self.state.managed_operations)
+        new_signature = self._operations_signature(normalized)
+        if old_signature == new_signature:
+            self.state.open_operations = len(self.state.managed_operations)
+            return
+
+        rebuilt: list[dict] = []
+        for idx, lot in enumerate(normalized, start=1):
+            rebuilt.append({"id": idx, **lot})
+        self.state.managed_operations = rebuilt
+        self.state.open_operations = len(rebuilt)
+        self.state.next_operation_id = len(rebuilt) + 1
+        self._append_event(
+            EngineEvent(
+                type="positions_reconciled",
+                message="Operações reconciliadas com fills reais da Binance",
+                payload={"count": len(rebuilt)},
+            )
+        )
+
     def _register_synced_operation(self, position: Position) -> None:
         if position.side == Side.FLAT:
             self._reset_managed_operations()
@@ -359,6 +429,7 @@ class TradingEngine:
             balances = self.gateway.get_balances()
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
+            self._reconcile_managed_operations(position)
             self._sync_state_with_open_position(position)
             self._close_tp_operations(position, position.mark_price)
             balances = self.gateway.get_balances()

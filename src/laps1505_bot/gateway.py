@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 from urllib.parse import urlencode
 
@@ -22,6 +23,9 @@ class Gateway(Protocol):
         ...
 
     def get_position(self, symbol: str) -> Position:
+        ...
+
+    def get_open_lots(self, symbol: str) -> list[dict]:
         ...
 
     def place_order(self, intent: OrderIntent) -> list[dict]:
@@ -137,6 +141,59 @@ class BinanceGateway:
         mark_price = self._get_mark_price(symbol)
         return Position(side=Side.FLAT, quantity=0.0, entry_price=0.0, mark_price=mark_price)
 
+    def get_open_lots(self, symbol: str) -> list[dict]:
+        trades = self._request(
+            method="GET",
+            path="/fapi/v1/userTrades",
+            params={"symbol": symbol, "limit": 1000},
+            signed=True,
+            market="futures",
+        )
+        if not isinstance(trades, list):
+            return []
+
+        ordered = sorted(trades, key=lambda item: (int(item.get("time", 0)), int(item.get("id", 0))))
+        lots: list[dict] = []
+        epsilon = 1e-12
+
+        for trade in ordered:
+            qty = abs(float(trade.get("qty", 0.0)))
+            price = float(trade.get("price", 0.0))
+            if qty <= epsilon or price <= 0:
+                continue
+
+            signed_qty = qty if str(trade.get("side", "")).upper() == "BUY" else -qty
+            incoming_sign = 1 if signed_qty > 0 else -1
+            remaining = abs(signed_qty)
+
+            while remaining > epsilon and lots:
+                head = lots[0]
+                head_sign = 1 if head["side"] == Side.LONG.value else -1
+                if head_sign == incoming_sign:
+                    break
+                consume = min(remaining, float(head["quantity"]))
+                head["quantity"] = float(head["quantity"]) - consume
+                head["notional_usdt"] = float(head["quantity"]) * float(head["entry_price"])
+                remaining -= consume
+                if float(head["quantity"]) <= epsilon:
+                    lots.pop(0)
+
+            if remaining > epsilon:
+                side = Side.LONG.value if incoming_sign > 0 else Side.SHORT.value
+                opened_at = datetime.fromtimestamp(int(trade.get("time", 0)) / 1000, tz=timezone.utc).isoformat()
+                lots.append(
+                    {
+                        "side": side,
+                        "entry_price": price,
+                        "quantity": remaining,
+                        "notional_usdt": remaining * price,
+                        "reason": "exchange_trade_lot",
+                        "opened_at": opened_at,
+                    }
+                )
+
+        return lots
+
     def _get_mark_price(self, symbol: str) -> float:
         data = self._request(
             method="GET",
@@ -223,6 +280,21 @@ class SimulationGateway:
     def get_position(self, symbol: str) -> Position:
         _ = symbol
         return self.position
+
+    def get_open_lots(self, symbol: str) -> list[dict]:
+        _ = symbol
+        if self.position.side == Side.FLAT or self.position.quantity <= 0:
+            return []
+        return [
+            {
+                "side": self.position.side.value,
+                "entry_price": self.position.entry_price,
+                "quantity": self.position.quantity,
+                "notional_usdt": self.position.quantity * self.position.entry_price,
+                "reason": "simulation_position",
+                "opened_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ]
 
     def place_order(self, intent: OrderIntent) -> list[dict]:
         mark = self.position.mark_price if self.position.mark_price > 0 else self.close_prices[-1]
