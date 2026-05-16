@@ -98,6 +98,46 @@ def test_engine_does_not_count_unfilled_orders_as_open_operations():
     assert any(event.type == "order_not_filled" for event in engine.events)
 
 
+def test_engine_closes_individual_operations_when_slot_roi_hits_100_percent():
+    settings = BotSettings(
+        dry_run=True,
+        min_notional_usdt=1.0,
+        tp_roi_target=1.0,
+        max_concurrent_operations=0,
+    )
+    gateway = SimulationGateway(
+        close_prices=list(range(100, 200)),
+        balances=BalanceSnapshot(
+            spot_usdt=80.0,
+            futures_wallet_usdt=20.0,
+            futures_free_usdt=20.0,
+            margin_ratio=0.2,
+        ),
+        position=Position(side=Side.LONG, quantity=1.0, entry_price=120.0, mark_price=199.0),
+    )
+    engine = TradingEngine(settings, gateway)
+    engine.state.recovery_anchor_side = Side.LONG
+    engine.state.recovery_base_notional = 10.0
+    engine.state.managed_operations = [
+        {
+            "id": 1,
+            "side": "LONG",
+            "entry_price": 80.0,
+            "quantity": 0.5,
+            "notional_usdt": 40.0,
+            "reason": "slot_scale_entry",
+            "opened_at": "2026-01-01T00:00:00+00:00",
+        }
+    ]
+    engine.state.open_operations = 1
+
+    engine.cycle_once()
+
+    assert len(engine.state.managed_operations) == 0
+    assert engine.state.open_operations == 0
+    assert any(event.type == "tp_slot_hit" for event in engine.events)
+
+
 def test_engine_status_contains_expected_sections():
     settings = BotSettings(dry_run=True)
     gateway = SimulationGateway(

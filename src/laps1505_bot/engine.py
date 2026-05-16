@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .config import BotSettings
 from .gateway import Gateway
 from .indicators import detect_trend
-from .models import BotState, EngineEvent, Position, Side
+from .models import BotState, EngineEvent, OrderIntent, Position, Side
 from .risk import RiskEngine
 from .strategy import StrategyEngine
 
@@ -128,7 +128,12 @@ class TradingEngine:
                 return True
         return False
 
-    def _register_operation_from_order(self, intent, responses: list[dict], mark_price: float) -> None:
+    def _register_operation_from_order(
+        self,
+        intent: OrderIntent,
+        responses: list[dict],
+        mark_price: float,
+    ) -> None:
         if intent.reduce_only:
             if intent.reason == "tp_100_roi" and self._has_effective_fill(responses):
                 self._reset_managed_operations()
@@ -166,6 +171,71 @@ class TradingEngine:
         self.state.next_operation_id += 1
         self.state.open_operations = len(self.state.managed_operations)
 
+    def _operation_roi(self, operation: dict, mark_price: float) -> float:
+        side_value = str(operation.get("side", "FLAT"))
+        entry_price = self._safe_float(operation.get("entry_price"))
+        if entry_price <= 0:
+            return 0.0
+        roi = (mark_price - entry_price) / entry_price
+        if side_value == Side.SHORT.value:
+            roi *= -1
+        return roi
+
+    def _select_tp_operations(self, mark_price: float) -> list[dict]:
+        return [
+            operation
+            for operation in self.state.managed_operations
+            if self._operation_roi(operation, mark_price) >= self.settings.tp_roi_target
+        ]
+
+    def _close_tp_operations(self, position: Position, mark_price: float) -> None:
+        if position.side == Side.FLAT:
+            return
+        tp_operations = self._select_tp_operations(mark_price)
+        if not tp_operations:
+            return
+
+        close_notional = sum(self._safe_float(operation.get("notional_usdt")) for operation in tp_operations)
+        if close_notional <= 0:
+            return
+
+        close_intent = OrderIntent(
+            symbol=self.settings.symbol,
+            side=position.side.opposite,
+            notional_usdt=close_notional,
+            reduce_only=True,
+            slices=self.settings.order_slices,
+            reason="tp_100_roi_slots",
+        )
+        responses = self.gateway.place_order(close_intent)
+        if not self._has_effective_fill(responses):
+            self._append_event(
+                EngineEvent(
+                    type="order_not_filled",
+                    message="Tentativa de TP por operação sem execução efetiva",
+                    payload={"notional": close_notional, "operations": len(tp_operations)},
+                )
+            )
+            return
+
+        closed_ids = {operation.get("id") for operation in tp_operations}
+        self.state.managed_operations = [
+            operation
+            for operation in self.state.managed_operations
+            if operation.get("id") not in closed_ids
+        ]
+        self.state.open_operations = len(self.state.managed_operations)
+        if self.state.open_operations == 0:
+            self.state.pending_3x = False
+            self.state.recovery_base_notional = 0.0
+        self._append_event(
+            EngineEvent(
+                type="tp_slot_hit",
+                message="TP de 100% executado em operações individuais",
+                payload={"closed_operations": len(tp_operations), "notional": close_notional},
+            )
+        )
+
     def _operation_snapshot(self, mark_price: float) -> list[dict]:
         snapshots: list[dict] = []
         for operation in self.state.managed_operations:
@@ -202,7 +272,8 @@ class TradingEngine:
 
     def _pending_operations_snapshot(self, base_notional: float, planned_side: Side) -> list[dict]:
         pending: list[dict] = []
-        for slot in range(self.state.open_operations + 1, self.settings.max_concurrent_operations + 1):
+        open_count = len(self.state.managed_operations)
+        for slot in range(open_count + 1, self.settings.max_concurrent_operations + 1):
             pending.append(
                 {
                     "slot": slot,
@@ -289,6 +360,11 @@ class TradingEngine:
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
             self._sync_state_with_open_position(position)
+            self._close_tp_operations(position, position.mark_price)
+            balances = self.gateway.get_balances()
+            position = self.gateway.get_position(self.settings.symbol)
+            position.mark_price = closes[-1]
+            self.state.open_operations = len(self.state.managed_operations)
 
             now_utc = datetime.now(timezone.utc)
             current_bucket = self._current_interval_bucket(now_utc)
