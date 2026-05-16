@@ -49,16 +49,19 @@ read_secret() {
 }
 
 cleanup_old_runtime() {
+  # Prevent deleting the shell's current working directory.
+  cd /
+
   log "Parando servicos e containers antigos..."
   systemctl stop nginx laps-bot-api laps-bot laps-crypto-dashboard laps-crypto 2>/dev/null || true
   docker ps --filter "publish=${BOT_PORT}" -q | xargs -r docker rm -f
   fuser -k "${BOT_PORT}/tcp" 2>/dev/null || true
 
   if [ -f "${APP_DIR}/docker-compose.yml" ]; then
-    docker compose -f "${APP_DIR}/docker-compose.yml" down --remove-orphans || true
+    docker compose --env-file /dev/null -f "${APP_DIR}/docker-compose.yml" down --remove-orphans || true
   fi
   if [ -f "${LEGACY_DIR}/docker-compose.yml" ]; then
-    docker compose -f "${LEGACY_DIR}/docker-compose.yml" down --remove-orphans || true
+    docker compose --env-file /dev/null -f "${LEGACY_DIR}/docker-compose.yml" down --remove-orphans || true
   fi
 
   log "Apagando pastas antigas..."
@@ -68,6 +71,7 @@ cleanup_old_runtime() {
 
 fresh_clone() {
   log "Clonando repositorio limpo em ${APP_DIR}..."
+  mkdir -p "$(dirname "${APP_DIR}")"
   git clone "${REPO_URL}" "${APP_DIR}"
   git -C "${APP_DIR}" checkout "${BRANCH}"
 }
