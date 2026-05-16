@@ -94,6 +94,8 @@ Variáveis principais:
 - `BOT_MAX_NOTIONAL_PER_OP=5.0`
 - `BOT_TRADING_SYMBOLS=...` (lista de altcoins em CSV)
 
+> Dica: para memecoins em futures, use os símbolos corretos de contrato (`1000PEPEUSDT`, `1000BONKUSDT`, `1000SHIBUSDT`, `1000FLOKIUSDT`).
+
 ## Rodando
 
 ```bash

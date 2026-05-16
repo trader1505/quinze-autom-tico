@@ -35,6 +35,10 @@ class TradingEngine:
             normalized.insert(0, settings.symbol.upper())
         if settings.dry_run:
             normalized = [settings.symbol.upper()]
+        else:
+            normalized = self.gateway.filter_tradeable_symbols(normalized)
+            if not normalized:
+                normalized = [settings.symbol.upper()]
         self.trading_symbols = normalized
         self._symbol_cursor = 0
 
@@ -237,11 +241,17 @@ class TradingEngine:
             return
 
         if not self._has_effective_fill(responses):
+            error_messages = [str(response.get("error")) for response in responses if isinstance(response, dict) and "error" in response]
             self._append_event(
                 EngineEvent(
                     type="order_not_filled",
                     message="Ordem enviada sem execução efetiva",
-                    payload={"reason": intent.reason, "notional": intent.notional_usdt},
+                    payload={
+                        "reason": intent.reason,
+                        "symbol": intent.symbol,
+                        "notional": intent.notional_usdt,
+                        "error": "; ".join(error_messages) if error_messages else "",
+                    },
                 )
             )
             return

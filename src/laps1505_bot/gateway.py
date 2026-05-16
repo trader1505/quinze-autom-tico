@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +14,14 @@ from urllib.parse import urlencode
 import requests
 
 from .models import BalanceSnapshot, OrderIntent, Position, Side, TransferIntent
+
+
+@dataclass(slots=True)
+class SymbolSpec:
+    quantity_precision: int
+    min_qty: float
+    step_size: float
+    min_notional: float
 
 
 class Gateway(Protocol):
@@ -31,6 +40,9 @@ class Gateway(Protocol):
     def get_mark_price(self, symbol: str) -> float:
         ...
 
+    def filter_tradeable_symbols(self, symbols: list[str]) -> list[str]:
+        ...
+
     def place_order(self, intent: OrderIntent) -> list[dict]:
         ...
 
@@ -43,7 +55,7 @@ class BinanceGateway:
         self.api_key = api_key
         self.api_secret = api_secret.encode("utf-8")
         self.recv_window = recv_window
-        self._quantity_precision_cache: dict[str, int] = {}
+        self._symbol_specs_cache: dict[str, SymbolSpec] = {}
 
     def _sign(self, params: dict[str, str | int | float]) -> str:
         query = urlencode(params, doseq=True)
@@ -77,7 +89,9 @@ class BinanceGateway:
             headers=headers,
             timeout=10,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = response.text.strip() or f"HTTP {response.status_code}"
+            raise RuntimeError(f"Binance API error {response.status_code}: {detail}")
         return response.json()
 
     def get_recent_closes(self, symbol: str, interval: str, limit: int = 100) -> list[float]:
@@ -144,6 +158,47 @@ class BinanceGateway:
         mark_price = self._get_mark_price(symbol)
         return Position(side=Side.FLAT, quantity=0.0, entry_price=0.0, mark_price=mark_price)
 
+    def _load_symbol_specs(self) -> dict[str, SymbolSpec]:
+        if self._symbol_specs_cache:
+            return self._symbol_specs_cache
+
+        info = self._request(method="GET", path="/fapi/v1/exchangeInfo", signed=False)
+        specs: dict[str, SymbolSpec] = {}
+        for data in info.get("symbols", []):
+            if data.get("status") != "TRADING":
+                continue
+            if data.get("contractType") not in {"PERPETUAL", "CURRENT_QUARTER", "NEXT_QUARTER"}:
+                continue
+            if data.get("quoteAsset") != "USDT":
+                continue
+
+            filters = {flt.get("filterType"): flt for flt in data.get("filters", [])}
+            lot = filters.get("LOT_SIZE", {})
+            min_qty = float(lot.get("minQty", "0"))
+            step_size = float(lot.get("stepSize", "0"))
+            min_notional = 0.0
+            if "NOTIONAL" in filters:
+                min_notional = float(filters["NOTIONAL"].get("minNotional", "0"))
+            elif "MIN_NOTIONAL" in filters:
+                min_notional = float(filters["MIN_NOTIONAL"].get("notional", "0"))
+
+            symbol = str(data.get("symbol"))
+            specs[symbol] = SymbolSpec(
+                quantity_precision=int(data.get("quantityPrecision", 0)),
+                min_qty=min_qty if min_qty > 0 else 0.0,
+                step_size=step_size if step_size > 0 else 0.0,
+                min_notional=min_notional if min_notional > 0 else 0.0,
+            )
+
+        self._symbol_specs_cache = specs
+        return specs
+
+    def _get_symbol_spec(self, symbol: str) -> SymbolSpec:
+        specs = self._load_symbol_specs()
+        if symbol not in specs:
+            raise ValueError(f"Symbol not tradeable on Binance futures: {symbol}")
+        return specs[symbol]
+
     def get_open_lots(self, symbol: str) -> list[dict]:
         trades = self._request(
             method="GET",
@@ -204,29 +259,41 @@ class BinanceGateway:
             params={"symbol": symbol},
             signed=False,
         )
+        if "price" not in data:
+            raise ValueError(f"Mark price unavailable for {symbol}: {data}")
         return float(data["price"])
 
     def get_mark_price(self, symbol: str) -> float:
         return self._get_mark_price(symbol)
 
-    def _get_quantity_precision(self, symbol: str) -> int:
-        if symbol in self._quantity_precision_cache:
-            return self._quantity_precision_cache[symbol]
-        info = self._request(method="GET", path="/fapi/v1/exchangeInfo", signed=False)
-        for data in info["symbols"]:
-            if data["symbol"] == symbol:
-                precision = int(data["quantityPrecision"])
-                self._quantity_precision_cache[symbol] = precision
-                return precision
-        raise ValueError(f"Symbol not found on Binance futures: {symbol}")
-
     def _round_quantity(self, symbol: str, notional_usdt: float) -> float:
         mark_price = self._get_mark_price(symbol)
         if mark_price <= 0:
             raise ValueError("Invalid mark price")
-        precision = self._get_quantity_precision(symbol)
-        qty = notional_usdt / mark_price
-        return round(qty, precision)
+        spec = self._get_symbol_spec(symbol)
+        effective_notional = max(notional_usdt, spec.min_notional) if spec.min_notional > 0 else notional_usdt
+        qty = effective_notional / mark_price
+        if spec.step_size > 0:
+            qty = math.floor(qty / spec.step_size) * spec.step_size
+            if qty < spec.min_qty:
+                qty = spec.min_qty
+            if spec.min_notional > 0:
+                while qty * mark_price + 1e-12 < spec.min_notional:
+                    qty += spec.step_size
+        if qty < spec.min_qty:
+            raise ValueError(f"Quantity below minimum for {symbol}: {qty} < {spec.min_qty}")
+        rounded = round(qty, spec.quantity_precision)
+        if rounded <= 0:
+            raise ValueError(f"Rounded quantity invalid for {symbol}: {rounded}")
+        return rounded
+
+    def filter_tradeable_symbols(self, symbols: list[str]) -> list[str]:
+        specs = self._load_symbol_specs()
+        result: list[str] = []
+        for symbol in symbols:
+            if symbol in specs:
+                result.append(symbol)
+        return result
 
     def place_order(self, intent: OrderIntent) -> list[dict]:
         side = "BUY" if intent.side == Side.LONG else "SELL"
@@ -234,24 +301,29 @@ class BinanceGateway:
         one_slice_notional = intent.notional_usdt / slices
         responses: list[dict] = []
         for _ in range(slices):
-            qty = self._round_quantity(intent.symbol, one_slice_notional)
-            if qty <= 0:
+            try:
+                qty = self._round_quantity(intent.symbol, one_slice_notional)
+            except Exception as exc:
+                responses.append({"status": "REJECTED", "error": str(exc)})
                 continue
-            response = self._request(
-                method="POST",
-                path="/fapi/v1/order",
-                params={
-                    "symbol": intent.symbol,
-                    "side": side,
-                    "type": "MARKET",
-                    "quantity": qty,
-                    "reduceOnly": "true" if intent.reduce_only else "false",
-                    "newOrderRespType": "RESULT",
-                },
-                signed=True,
-                market="futures",
-            )
-            responses.append(response)
+            try:
+                response = self._request(
+                    method="POST",
+                    path="/fapi/v1/order",
+                    params={
+                        "symbol": intent.symbol,
+                        "side": side,
+                        "type": "MARKET",
+                        "quantity": qty,
+                        "reduceOnly": "true" if intent.reduce_only else "false",
+                        "newOrderRespType": "RESULT",
+                    },
+                    signed=True,
+                    market="futures",
+                )
+                responses.append(response)
+            except Exception as exc:
+                responses.append({"status": "REJECTED", "error": str(exc)})
             time.sleep(0.1)
         return responses
 
@@ -307,6 +379,9 @@ class SimulationGateway:
         if self.position.mark_price > 0:
             return self.position.mark_price
         return self.close_prices[-1]
+
+    def filter_tradeable_symbols(self, symbols: list[str]) -> list[str]:
+        return symbols
 
     def place_order(self, intent: OrderIntent) -> list[dict]:
         mark = self.position.mark_price if self.position.mark_price > 0 else self.close_prices[-1]
