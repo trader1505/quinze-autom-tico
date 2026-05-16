@@ -95,4 +95,6 @@ class BotState:
     recovery_base_notional: float = 0.0
     pending_3x: bool = False
     open_operations: int = 0
+    next_operation_id: int = 1
+    managed_operations: list[dict] = field(default_factory=list)
     last_event: EngineEvent | None = None

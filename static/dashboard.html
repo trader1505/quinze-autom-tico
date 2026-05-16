@@ -17,6 +17,14 @@
     .sound-tp { background: linear-gradient(180deg, #ffe2a0, #c79a36); color: #2a1902; }
     .sound-3x { background: linear-gradient(180deg, #f7db92, #ad7d26); color: #271703; }
     pre { white-space: pre-wrap; font-size: 12px; line-height: 1.3; max-height: 320px; overflow: auto; margin: 0; color: #f8e7bc; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid #4e3c16; padding: 6px; text-align: left; }
+    th { color: #f6d680; font-weight: 700; }
+    .side-long { color: #22c55e; font-weight: 700; }
+    .side-short { color: #ef4444; font-weight: 700; }
+    .pnl-positive { color: #22c55e; font-weight: 700; }
+    .pnl-negative { color: #ef4444; font-weight: 700; }
+    .pnl-neutral { color: #f6d680; }
     .ok { color: #f5cd6b; } .warn { color: #e2b553; } .danger { color: #c69332; }
   </style>
 </head>
@@ -61,6 +69,14 @@
       <div>Ops abertas: <span id="open-ops">0</span>/<span id="max-ops">0</span></div>
     </article>
     <article class="card" style="grid-column: 1 / -1">
+      <h3>Operações abertas</h3>
+      <div id="operations-table"></div>
+    </article>
+    <article class="card" style="grid-column: 1 / -1">
+      <h3>Operações pendentes (até 30)</h3>
+      <div id="pending-operations-table"></div>
+    </article>
+    <article class="card" style="grid-column: 1 / -1">
       <h3>Eventos (tempo real)</h3>
       <pre id="events">Sem eventos</pre>
     </article>
@@ -75,6 +91,88 @@
 
     function setText(id, value) {
       document.getElementById(id).textContent = value;
+    }
+
+    function formatPnlPct(value) {
+      return `${(Number(value || 0) * 100).toFixed(2)}%`;
+    }
+
+    function sideClass(side) {
+      if (side === "LONG") return "side-long";
+      if (side === "SHORT") return "side-short";
+      return "";
+    }
+
+    function pnlClass(value) {
+      if (value > 0) return "pnl-positive";
+      if (value < 0) return "pnl-negative";
+      return "pnl-neutral";
+    }
+
+    function renderOperations(operations) {
+      const target = document.getElementById("operations-table");
+      if (!operations || operations.length === 0) {
+        target.innerHTML = "<div>Sem operações abertas no momento.</div>";
+        return;
+      }
+      const rows = operations.map(op => `
+        <tr>
+          <td>#${op.id}</td>
+          <td class="${sideClass(op.side)}">${op.side}</td>
+          <td>${formatUsdt(op.entry_price)}</td>
+          <td>${formatUsdt(op.mark_price)}</td>
+          <td>${formatUsdt(op.notional_usdt)}</td>
+          <td class="${pnlClass(op.pnl_usdt)}">${formatUsdt(op.pnl_usdt)}</td>
+          <td class="${pnlClass(op.pnl_usdt)}">${formatPnlPct(op.pnl_pct)}</td>
+          <td>${op.reason}</td>
+        </tr>
+      `).join("");
+      target.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Lado</th>
+              <th>Entrada</th>
+              <th>Mark</th>
+              <th>Notional</th>
+              <th>PnL (USDT)</th>
+              <th>PnL (%)</th>
+              <th>Origem</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function renderPendingOperations(pending) {
+      const target = document.getElementById("pending-operations-table");
+      if (!pending || pending.length === 0) {
+        target.innerHTML = "<div>Nenhuma pendente. Limite máximo já atingido.</div>";
+        return;
+      }
+      const rows = pending.map(op => `
+        <tr>
+          <td>${op.slot}</td>
+          <td class="${sideClass(op.side)}">${op.side}</td>
+          <td>${formatUsdt(op.estimated_notional_usdt)}</td>
+          <td>${op.status}</td>
+        </tr>
+      `).join("");
+      target.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Lado</th>
+              <th>Notional estimado</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
     }
 
     function playCashSound() {
@@ -141,6 +239,8 @@
       setText("base-notional", formatUsdt(data.state.recovery_base_notional));
       setText("open-ops", String(data.state.open_operations ?? 0));
       setText("max-ops", String(data.state.max_concurrent_operations ?? 0));
+      renderOperations(data.operations || []);
+      renderPendingOperations(data.pending_operations || []);
 
       const events = data.events || [];
       const lines = events.map(e => `[${e.created_at}] ${e.type}: ${e.message}`).join("\n");

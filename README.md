@@ -9,7 +9,7 @@ Bot profissional para operar **Binance Futures** com:
 - Gestão de capital com rebalanceamento automático **80% Spot / 20% Futures**
 - Take profit em **100% ROI** (fecha operação inteira)
 - Lógica de recuperação **3x**
-- Painel web com status em tempo real + som para `TP` e para execução do `3x`
+- Painel web com status em tempo real, tabela de operações abertas/pendentes e som para `TP` e para execução do `3x`
 
 ## Como a estratégia está modelada
 

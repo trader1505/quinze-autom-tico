@@ -51,6 +51,8 @@ def test_engine_syncs_existing_open_position_on_first_cycle():
 
     assert engine.state.recovery_anchor_side == Side.LONG
     assert engine.state.recovery_base_notional > 0
+    assert len(engine.state.managed_operations) >= 1
+    assert engine.state.managed_operations[0]["reason"] == "synced_existing_position"
     assert any(event.type == "position_synced" for event in engine.events)
 
 
@@ -92,3 +94,5 @@ def test_engine_status_contains_expected_sections():
     assert "balances" in payload
     assert "position" in payload
     assert "state" in payload
+    assert "operations" in payload
+    assert "pending_operations" in payload
