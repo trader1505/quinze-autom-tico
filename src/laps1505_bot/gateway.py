@@ -28,6 +28,9 @@ class Gateway(Protocol):
     def get_open_lots(self, symbol: str) -> list[dict]:
         ...
 
+    def get_mark_price(self, symbol: str) -> float:
+        ...
+
     def place_order(self, intent: OrderIntent) -> list[dict]:
         ...
 
@@ -203,6 +206,9 @@ class BinanceGateway:
         )
         return float(data["price"])
 
+    def get_mark_price(self, symbol: str) -> float:
+        return self._get_mark_price(symbol)
+
     def _get_quantity_precision(self, symbol: str) -> int:
         if symbol in self._quantity_precision_cache:
             return self._quantity_precision_cache[symbol]
@@ -295,6 +301,12 @@ class SimulationGateway:
                 "opened_at": datetime.now(timezone.utc).isoformat(),
             }
         ]
+
+    def get_mark_price(self, symbol: str) -> float:
+        _ = symbol
+        if self.position.mark_price > 0:
+            return self.position.mark_price
+        return self.close_prices[-1]
 
     def place_order(self, intent: OrderIntent) -> list[dict]:
         mark = self.position.mark_price if self.position.mark_price > 0 else self.close_prices[-1]

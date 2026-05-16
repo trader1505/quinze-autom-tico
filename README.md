@@ -5,7 +5,7 @@ Bot profissional para operar **Binance Futures** com:
 - Timeframe **M15**
 - Médias móveis exponenciais **EMA 12 / EMA 26**
 - Regra de tendência: **EMA12 acima = LONG**, **EMA12 abaixo = SHORT**
-- Entrada com **1% do capital livre em Futures**
+- Entrada com **1% do capital livre em Futures** (com teto por operação)
 - Gestão de capital com rebalanceamento automático **80% Spot / 20% Futures**
 - Take profit em **100% ROI** (fecha operação inteira)
 - Lógica de recuperação **3x**
@@ -20,13 +20,12 @@ Bot profissional para operar **Binance Futures** com:
 - Somente considera sinal quando há **confirmação** (cruzamento mantido em 2 candles seguidos).
 
 ### 2) Motor de entrada
-- Se não houver posição e o sinal confirmar:
-  - entra na direção da tendência;
-  - tamanho = `1%` do saldo livre em Futures (`availableBalance`);
-  - mínimo configurável (`BOT_MIN_NOTIONAL`) para evitar ordem muito pequena.
-- Enquanto a tendência confirmada continuar no mesmo lado e houver margem livre:
-  - o bot adiciona novas entradas de `1%` do livre;
-  - até o limite de operações simultâneas (`BOT_MAX_CONCURRENT_OPS`, padrão `30`).
+- O bot mantém até `BOT_MAX_CONCURRENT_OPS` posições simultâneas (padrão `30`).
+- Escolhe símbolos de uma lista de altcoins (`BOT_TRADING_SYMBOLS`) e abre novas posições conforme margem livre.
+- Tamanho de cada operação:
+  - base: `1%` do saldo livre em Futures (`availableBalance`);
+  - mínimo: `BOT_MIN_NOTIONAL`;
+  - máximo: `BOT_MAX_NOTIONAL_PER_OP` (proteção para não entrar com valor grande).
 
 ### 3) Motor TP (100% ROI)
 - Se `ROI >= 100%`:
@@ -92,6 +91,8 @@ Variáveis principais:
 - `BOT_SYMBOL=BTCUSDT`
 - `BOT_INTERVAL=15m`
 - `BOT_MAX_CONCURRENT_OPS=30`
+- `BOT_MAX_NOTIONAL_PER_OP=5.0`
+- `BOT_TRADING_SYMBOLS=...` (lista de altcoins em CSV)
 
 ## Rodando
 

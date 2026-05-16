@@ -118,6 +118,7 @@
       const rows = operations.map(op => `
         <tr>
           <td>#${op.id}</td>
+          <td>${op.symbol || "-"}</td>
           <td class="${sideClass(op.side)}">${op.side}</td>
           <td>${formatUsdt(op.entry_price)}</td>
           <td>${formatUsdt(op.mark_price)}</td>
@@ -132,6 +133,7 @@
           <thead>
             <tr>
               <th>ID</th>
+              <th>Símbolo</th>
               <th>Lado</th>
               <th>Entrada</th>
               <th>Mark</th>
@@ -155,6 +157,7 @@
       const rows = pending.map(op => `
         <tr>
           <td>${op.slot}</td>
+          <td>${op.symbol || "-"}</td>
           <td class="${sideClass(op.side)}">${op.side}</td>
           <td>${formatUsdt(op.estimated_notional_usdt)}</td>
           <td>${op.status}</td>
@@ -165,6 +168,7 @@
           <thead>
             <tr>
               <th>Slot</th>
+              <th>Símbolo</th>
               <th>Lado</th>
               <th>Notional estimado</th>
               <th>Status</th>

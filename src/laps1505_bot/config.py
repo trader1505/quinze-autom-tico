@@ -16,6 +16,14 @@ def _env_int(name: str, default: int) -> int:
     return int(value) if value is not None else default
 
 
+def _env_list(name: str, default: list[str]) -> list[str]:
+    value = getenv(name)
+    if value is None:
+        return default
+    items = [item.strip().upper() for item in value.split(",")]
+    return [item for item in items if item]
+
+
 @dataclass(slots=True)
 class BotSettings:
     """Runtime settings loaded from env vars."""
@@ -25,12 +33,14 @@ class BotSettings:
     ema_short_period: int = 12
     ema_long_period: int = 26
     entry_fraction_of_free_futures: float = 0.01
+    max_notional_per_operation: float = 5.0
     spot_target_ratio: float = 0.80
     futures_target_ratio: float = 0.20
     tp_roi_target: float = 1.0
     recovery_multiplier: float = 3.0
     order_slices: int = 3
     max_concurrent_operations: int = 30
+    trading_symbols: list[str] | None = None
     margin_stress_threshold: float = 0.60
     margin_recovery_threshold: float = 0.30
     min_notional_usdt: float = 5.0
@@ -49,12 +59,53 @@ class BotSettings:
             ema_short_period=_env_int("BOT_EMA_SHORT", 12),
             ema_long_period=_env_int("BOT_EMA_LONG", 26),
             entry_fraction_of_free_futures=_env_float("BOT_ENTRY_FRACTION", 0.01),
+            max_notional_per_operation=_env_float("BOT_MAX_NOTIONAL_PER_OP", 5.0),
             spot_target_ratio=_env_float("BOT_SPOT_TARGET", 0.80),
             futures_target_ratio=_env_float("BOT_FUTURES_TARGET", 0.20),
             tp_roi_target=_env_float("BOT_TP_ROI", 1.0),
             recovery_multiplier=_env_float("BOT_RECOVERY_MULTIPLIER", 3.0),
             order_slices=_env_int("BOT_ORDER_SLICES", 3),
             max_concurrent_operations=_env_int("BOT_MAX_CONCURRENT_OPS", 30),
+            trading_symbols=_env_list(
+                "BOT_TRADING_SYMBOLS",
+                [
+                    "DOGEUSDT",
+                    "XRPUSDT",
+                    "ADAUSDT",
+                    "TRXUSDT",
+                    "SOLUSDT",
+                    "MATICUSDT",
+                    "LINKUSDT",
+                    "AVAXUSDT",
+                    "DOTUSDT",
+                    "LTCUSDT",
+                    "ATOMUSDT",
+                    "NEARUSDT",
+                    "ARBUSDT",
+                    "OPUSDT",
+                    "APTUSDT",
+                    "SUIUSDT",
+                    "INJUSDT",
+                    "SEIUSDT",
+                    "PEPEUSDT",
+                    "WIFUSDT",
+                    "BONKUSDT",
+                    "FLOKIUSDT",
+                    "SHIBUSDT",
+                    "FILUSDT",
+                    "ETCUSDT",
+                    "AAVEUSDT",
+                    "UNIUSDT",
+                    "RUNEUSDT",
+                    "ALGOUSDT",
+                    "HBARUSDT",
+                    "ICPUSDT",
+                    "EGLDUSDT",
+                    "GALAUSDT",
+                    "SANDUSDT",
+                    "MANAUSDT",
+                ],
+            ),
             margin_stress_threshold=_env_float("BOT_MARGIN_STRESS", 0.60),
             margin_recovery_threshold=_env_float("BOT_MARGIN_RECOVERY", 0.30),
             min_notional_usdt=_env_float("BOT_MIN_NOTIONAL", 5.0),

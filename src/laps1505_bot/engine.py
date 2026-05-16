@@ -29,6 +29,14 @@ class TradingEngine:
         self.last_cycle_at: datetime | None = None
         self.last_error: str | None = None
         self.last_strategy_bucket_at: datetime | None = None
+        configured = settings.trading_symbols or [settings.symbol]
+        normalized = [symbol.upper() for symbol in configured if symbol]
+        if settings.symbol.upper() not in normalized:
+            normalized.insert(0, settings.symbol.upper())
+        if settings.dry_run:
+            normalized = [settings.symbol.upper()]
+        self.trading_symbols = normalized
+        self._symbol_cursor = 0
 
     def _interval_seconds(self) -> int:
         interval = self.settings.interval.strip().lower()
@@ -72,6 +80,7 @@ class TradingEngine:
     def _operations_signature(self, operations: list[dict]) -> list[tuple[str, float, float]]:
         return [
             (
+                str(operation.get("symbol", self.settings.symbol)),
                 str(operation.get("side", "FLAT")),
                 round(self._safe_float(operation.get("entry_price")), 8),
                 round(self._safe_float(operation.get("quantity")), 8),
@@ -79,7 +88,7 @@ class TradingEngine:
             for operation in operations
         ]
 
-    def _normalize_exchange_lots(self, lots: list[dict], fallback_position: Position) -> list[dict]:
+    def _normalize_exchange_lots(self, symbol: str, lots: list[dict], fallback_position: Position) -> list[dict]:
         normalized: list[dict] = []
         for lot in lots:
             side = str(lot.get("side", "FLAT"))
@@ -91,6 +100,7 @@ class TradingEngine:
                 continue
             normalized.append(
                 {
+                    "symbol": symbol,
                     "side": side,
                     "entry_price": entry,
                     "quantity": qty,
@@ -103,6 +113,7 @@ class TradingEngine:
         if not normalized and fallback_position.side != Side.FLAT and fallback_position.quantity > 0:
             normalized.append(
                 {
+                    "symbol": symbol,
                     "side": fallback_position.side.value,
                     "entry_price": fallback_position.entry_price,
                     "quantity": fallback_position.quantity,
@@ -116,9 +127,21 @@ class TradingEngine:
             )
         return normalized
 
-    def _reconcile_managed_operations(self, position: Position) -> None:
-        exchange_lots = self.gateway.get_open_lots(self.settings.symbol)
-        normalized = self._normalize_exchange_lots(exchange_lots, position)
+    def _reconcile_managed_operations(self) -> None:
+        normalized: list[dict] = []
+        for symbol in self.trading_symbols:
+            try:
+                position = self.gateway.get_position(symbol)
+                lots = self.gateway.get_open_lots(symbol)
+                normalized.extend(self._normalize_exchange_lots(symbol, lots, position))
+            except Exception as exc:
+                self._append_event(
+                    EngineEvent(
+                        type="reconcile_error",
+                        message=f"Falha ao reconciliar {symbol}",
+                        payload={"error": str(exc)},
+                    )
+                )
         old_signature = self._operations_signature(self.state.managed_operations)
         new_signature = self._operations_signature(normalized)
         if old_signature == new_signature:
@@ -150,6 +173,7 @@ class TradingEngine:
         self.state.managed_operations.append(
             {
                 "id": self.state.next_operation_id,
+                "symbol": self.settings.symbol,
                 "side": position.side.value,
                 "entry_price": position.entry_price,
                 "quantity": quantity,
@@ -230,6 +254,7 @@ class TradingEngine:
         self.state.managed_operations.append(
             {
                 "id": self.state.next_operation_id,
+                "symbol": intent.symbol,
                 "side": intent.side.value,
                 "entry_price": entry_price,
                 "quantity": quantity,
@@ -251,48 +276,75 @@ class TradingEngine:
             roi *= -1
         return roi
 
-    def _select_tp_operations(self, mark_price: float) -> list[dict]:
+    def _select_tp_operations(self, mark_prices: dict[str, float]) -> list[dict]:
         return [
             operation
             for operation in self.state.managed_operations
-            if self._operation_roi(operation, mark_price) >= self.settings.tp_roi_target
+            if self._operation_roi(
+                operation,
+                mark_prices.get(str(operation.get("symbol", self.settings.symbol)), 0.0),
+            )
+            >= self.settings.tp_roi_target
         ]
 
-    def _close_tp_operations(self, position: Position, mark_price: float) -> None:
-        if position.side == Side.FLAT:
-            return
-        tp_operations = self._select_tp_operations(mark_price)
+    def _close_tp_operations(self, mark_prices: dict[str, float]) -> None:
+        tp_operations = self._select_tp_operations(mark_prices)
         if not tp_operations:
             return
 
-        close_notional = sum(self._safe_float(operation.get("notional_usdt")) for operation in tp_operations)
-        if close_notional <= 0:
-            return
+        by_symbol_side: dict[tuple[str, str], list[dict]] = {}
+        for operation in tp_operations:
+            symbol = str(operation.get("symbol", self.settings.symbol))
+            side = str(operation.get("side", Side.FLAT.value))
+            by_symbol_side.setdefault((symbol, side), []).append(operation)
 
-        close_intent = OrderIntent(
-            symbol=self.settings.symbol,
-            side=position.side.opposite,
-            notional_usdt=close_notional,
-            reduce_only=True,
-            slices=self.settings.order_slices,
-            reason="tp_100_roi_slots",
-        )
-        responses = self.gateway.place_order(close_intent)
-        if not self._has_effective_fill(responses):
-            self._append_event(
-                EngineEvent(
-                    type="order_not_filled",
-                    message="Tentativa de TP por operação sem execução efetiva",
-                    payload={"notional": close_notional, "operations": len(tp_operations)},
+        closed_ids: set[object] = set()
+        closed_notional = 0.0
+        for (symbol, side_value), operations in by_symbol_side.items():
+            if side_value not in {Side.LONG.value, Side.SHORT.value}:
+                continue
+            try:
+                symbol_position = self.gateway.get_position(symbol)
+            except Exception as exc:
+                self._append_event(
+                    EngineEvent(
+                        type="tp_close_error",
+                        message=f"Falha ao consultar posição para TP em {symbol}",
+                        payload={"error": str(exc)},
+                    )
                 )
+                continue
+            if symbol_position.side == Side.FLAT:
+                continue
+            close_notional = sum(self._safe_float(operation.get("notional_usdt")) for operation in operations)
+            if close_notional <= 0:
+                continue
+            close_side = Side.LONG if side_value == Side.SHORT.value else Side.SHORT
+            close_intent = OrderIntent(
+                symbol=symbol,
+                side=close_side,
+                notional_usdt=close_notional,
+                reduce_only=True,
+                slices=self.settings.order_slices,
+                reason="tp_100_roi_slots",
             )
-            return
+            responses = self.gateway.place_order(close_intent)
+            if not self._has_effective_fill(responses):
+                self._append_event(
+                    EngineEvent(
+                        type="order_not_filled",
+                        message="Tentativa de TP por operação sem execução efetiva",
+                        payload={"symbol": symbol, "notional": close_notional, "operations": len(operations)},
+                    )
+                )
+                continue
+            closed_notional += close_notional
+            closed_ids.update(operation.get("id") for operation in operations)
 
-        closed_ids = {operation.get("id") for operation in tp_operations}
+        if not closed_ids:
+            return
         self.state.managed_operations = [
-            operation
-            for operation in self.state.managed_operations
-            if operation.get("id") not in closed_ids
+            operation for operation in self.state.managed_operations if operation.get("id") not in closed_ids
         ]
         self.state.open_operations = len(self.state.managed_operations)
         if self.state.open_operations == 0:
@@ -302,13 +354,15 @@ class TradingEngine:
             EngineEvent(
                 type="tp_slot_hit",
                 message="TP de 100% executado em operações individuais",
-                payload={"closed_operations": len(tp_operations), "notional": close_notional},
+                payload={"closed_operations": len(closed_ids), "notional": closed_notional},
             )
         )
 
-    def _operation_snapshot(self, mark_price: float) -> list[dict]:
+    def _operation_snapshot(self, mark_prices: dict[str, float]) -> list[dict]:
         snapshots: list[dict] = []
         for operation in self.state.managed_operations:
+            symbol = str(operation.get("symbol", self.settings.symbol))
+            mark_price = mark_prices.get(symbol, 0.0)
             side_value = str(operation.get("side", "FLAT"))
             entry_price = self._safe_float(operation.get("entry_price"))
             quantity = self._safe_float(operation.get("quantity"))
@@ -340,32 +394,113 @@ class TradingEngine:
             )
         return snapshots
 
-    def _pending_operations_snapshot(self, base_notional: float, planned_side: Side) -> list[dict]:
+    def _pending_operations_snapshot(self, base_notional: float, planned_side: str) -> list[dict]:
         pending: list[dict] = []
         open_count = len(self.state.managed_operations)
-        for slot in range(open_count + 1, self.settings.max_concurrent_operations + 1):
+        open_symbols = {str(operation.get("symbol", "")) for operation in self.state.managed_operations}
+        candidates = [symbol for symbol in self.trading_symbols if symbol not in open_symbols]
+        for index, slot in enumerate(range(open_count + 1, self.settings.max_concurrent_operations + 1)):
+            symbol = candidates[index % len(candidates)] if candidates else self.settings.symbol
             pending.append(
                 {
                     "slot": slot,
-                    "side": planned_side.value,
+                    "symbol": symbol,
+                    "side": planned_side,
                     "estimated_notional_usdt": base_notional,
                     "status": "PENDENTE",
                 }
             )
         return pending
 
+    def _collect_mark_prices(self) -> dict[str, float]:
+        symbols = {str(operation.get("symbol", self.settings.symbol)) for operation in self.state.managed_operations}
+        symbols.add(self.settings.symbol)
+        prices: dict[str, float] = {}
+        for symbol in symbols:
+            try:
+                prices[symbol] = self.gateway.get_mark_price(symbol)
+            except Exception:
+                prices[symbol] = 0.0
+        return prices
+
+    def _fill_open_slots(self, balances, closes_limit: int) -> None:
+        current_count = len(self.state.managed_operations)
+        target_count = self.settings.max_concurrent_operations
+        if current_count >= target_count:
+            return
+
+        free_usdt = balances.futures_free_usdt
+        if free_usdt < self.settings.min_notional_usdt:
+            return
+
+        open_symbols = {str(operation.get("symbol", "")) for operation in self.state.managed_operations}
+        candidates = [symbol for symbol in self.trading_symbols if symbol not in open_symbols]
+        if not candidates:
+            return
+
+        start = self._symbol_cursor % len(candidates)
+        rotated = candidates[start:] + candidates[:start]
+        opened = 0
+        for symbol in rotated:
+            if len(self.state.managed_operations) >= target_count:
+                break
+            if free_usdt < self.settings.min_notional_usdt:
+                break
+
+            try:
+                closes = self.gateway.get_recent_closes(symbol=symbol, interval=self.settings.interval, limit=closes_limit)
+                if len(closes) < self.settings.ema_long_period + 2:
+                    continue
+                signal = detect_trend(closes[:-1], self.settings.ema_short_period, self.settings.ema_long_period)
+                if not signal.confirmed:
+                    continue
+
+                raw_notional = max(free_usdt * self.settings.entry_fraction_of_free_futures, self.settings.min_notional_usdt)
+                notional = min(raw_notional, self.settings.max_notional_per_operation)
+                if notional < self.settings.min_notional_usdt:
+                    continue
+
+                intent = OrderIntent(
+                    symbol=symbol,
+                    side=signal.side,
+                    notional_usdt=notional,
+                    reduce_only=False,
+                    slices=1,
+                    reason="slot_scale_entry",
+                )
+                responses = self.gateway.place_order(intent)
+                self._register_operation_from_order(intent, responses, closes[-1])
+                if self._has_effective_fill(responses):
+                    opened += 1
+                    free_usdt = max(0.0, free_usdt - notional)
+                    self._append_event(
+                        EngineEvent(
+                            type="slot_opened",
+                            message="Nova operação simultânea aberta em altcoin",
+                            payload={"symbol": symbol, "notional": notional},
+                        )
+                    )
+                    if free_usdt < self.settings.min_notional_usdt:
+                        break
+            except Exception as exc:
+                self._append_event(
+                    EngineEvent(
+                        type="slot_open_error",
+                        message=f"Falha ao abrir slot em {symbol}",
+                        payload={"error": str(exc)},
+                    )
+                )
+                continue
+
+        if candidates:
+            self._symbol_cursor = (self._symbol_cursor + max(opened, 1)) % max(len(candidates), 1)
+
     def _sync_state_with_open_position(self, position: Position) -> None:
         if position.side == Side.FLAT:
-            if (
-                self.state.pending_3x
-                or self.state.recovery_anchor_side != Side.FLAT
-                or self.state.recovery_base_notional > 0
-                or self.state.open_operations > 0
-            ):
+            if self.state.pending_3x or self.state.recovery_anchor_side != Side.FLAT or self.state.recovery_base_notional > 0:
                 self.state.pending_3x = False
                 self.state.recovery_anchor_side = Side.FLAT
                 self.state.recovery_base_notional = 0.0
-                self._reset_managed_operations()
                 self._append_event(
                     EngineEvent(
                         type="position_state_reset",
@@ -379,7 +514,6 @@ class TradingEngine:
             self.state.recovery_anchor_side = position.side
             self.state.recovery_base_notional = open_notional
             self.state.pending_3x = False
-            self._register_synced_operation(position)
             self._append_event(
                 EngineEvent(
                     type="position_synced",
@@ -387,7 +521,7 @@ class TradingEngine:
                     payload={
                         "side": position.side.value,
                         "notional": open_notional,
-                        "open_operations": self.state.open_operations,
+                        "open_operations": len(self.state.managed_operations),
                     },
                 )
             )
@@ -396,8 +530,6 @@ class TradingEngine:
         if self.state.recovery_anchor_side != position.side and not self.state.pending_3x:
             self.state.recovery_anchor_side = position.side
             self.state.recovery_base_notional = open_notional
-            self._reset_managed_operations()
-            self._register_synced_operation(position)
             self._append_event(
                 EngineEvent(
                     type="position_reanchored",
@@ -405,7 +537,7 @@ class TradingEngine:
                     payload={
                         "side": position.side.value,
                         "notional": open_notional,
-                        "open_operations": self.state.open_operations,
+                        "open_operations": len(self.state.managed_operations),
                     },
                 )
             )
@@ -413,8 +545,6 @@ class TradingEngine:
 
         if self.state.recovery_base_notional <= 0:
             self.state.recovery_base_notional = open_notional
-        if self.state.open_operations <= 0 or not self.state.managed_operations:
-            self._register_synced_operation(position)
 
     def cycle_once(self) -> None:
         try:
@@ -429,9 +559,10 @@ class TradingEngine:
             balances = self.gateway.get_balances()
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
-            self._reconcile_managed_operations(position)
+            self._reconcile_managed_operations()
             self._sync_state_with_open_position(position)
-            self._close_tp_operations(position, position.mark_price)
+            mark_prices = self._collect_mark_prices()
+            self._close_tp_operations(mark_prices)
             balances = self.gateway.get_balances()
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
@@ -452,6 +583,14 @@ class TradingEngine:
             self.state.open_operations = len(self.state.managed_operations)
             for event in strategy_result.events:
                 self._append_event(event)
+
+            balances = self.gateway.get_balances()
+            self._fill_open_slots(
+                balances=balances,
+                closes_limit=max(self.settings.ema_long_period + 5, 60),
+            )
+            self.state.open_operations = len(self.state.managed_operations)
+            balances = self.gateway.get_balances()
             self.last_strategy_bucket_at = current_bucket
 
             risk_result = self.risk.evaluate(balances)
@@ -492,15 +631,14 @@ class TradingEngine:
     def status(self) -> dict:
         balances = self.gateway.get_balances()
         position = self.gateway.get_position(self.settings.symbol)
-        mark_price = position.mark_price if position.mark_price > 0 else position.entry_price
-        if mark_price <= 0:
-            mark_price = 0.0
-        operations = self._operation_snapshot(mark_price=mark_price)
+        mark_prices = self._collect_mark_prices()
+        operations = self._operation_snapshot(mark_prices=mark_prices)
         base_notional = max(
             balances.futures_free_usdt * self.settings.entry_fraction_of_free_futures,
             self.settings.min_notional_usdt,
         )
-        planned_side = position.side if position.side != Side.FLAT else self.state.recovery_anchor_side
+        base_notional = min(base_notional, self.settings.max_notional_per_operation)
+        planned_side = position.side.value if position.side != Side.FLAT else "TBD"
         pending_operations = self._pending_operations_snapshot(
             base_notional=base_notional,
             planned_side=planned_side,
@@ -510,6 +648,7 @@ class TradingEngine:
         return {
             "running": self.running,
             "symbol": self.settings.symbol,
+            "trading_symbols": self.trading_symbols,
             "interval": self.settings.interval,
             "dry_run": self.settings.dry_run,
             "last_cycle_at": self.last_cycle_at.isoformat() if self.last_cycle_at else None,

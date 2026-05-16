@@ -21,7 +21,8 @@ class StrategyEngine:
 
     def _base_entry_notional(self, balances: BalanceSnapshot) -> float:
         notional = balances.futures_free_usdt * self.settings.entry_fraction_of_free_futures
-        return max(notional, self.settings.min_notional_usdt)
+        bounded = max(notional, self.settings.min_notional_usdt)
+        return min(bounded, self.settings.max_notional_per_operation)
 
     def evaluate(
         self,
