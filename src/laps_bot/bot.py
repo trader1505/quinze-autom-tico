@@ -283,7 +283,16 @@ class LapsBot:
 
         if roi >= self.config.target_roi_pct:
             self.exchange.close_position(position)
-            rebalance_80_20(self.exchange, self.config)
+            try:
+                rebalance_80_20(self.exchange, self.config)
+            except Exception as exc:
+                LOG.warning("Rebalance after TP failed on %s: %s", position.symbol, exc)
+                self._emit(
+                    "cash_rebalance_failed",
+                    "Cash rebalance failed after TP close.",
+                    payload={"symbol": position.symbol, "error": str(exc)},
+                    severity="error",
+                )
             self._emit(
                 "tp_hit",
                 "Target ROI reached; position closed and capital rebalanced 80/20.",
@@ -317,41 +326,65 @@ class LapsBot:
         ):
             topup_amount = margin_topup_usdt(self.exchange.free_spot_usdt(), self.config.margin_topup_pct)
             if topup_amount > 0:
-                self.exchange.transfer_usdt(topup_amount, "spot", "future")
-                state.topups_used += 1
-                LOG.warning(
-                    "Negative ROI trigger reached (%.4f%%). Added %.8f USDT margin. Topups: %s/%s",
-                    roi,
-                    topup_amount,
-                    state.topups_used,
-                    self.config.max_topups,
-                )
+                try:
+                    self.exchange.transfer_usdt(topup_amount, "spot", "future")
+                    state.topups_used += 1
+                    LOG.warning(
+                        "Negative ROI trigger reached (%.4f%%). Added %.8f USDT margin. Topups: %s/%s",
+                        roi,
+                        topup_amount,
+                        state.topups_used,
+                        self.config.max_topups,
+                    )
+                    self._emit(
+                        "margin_topped_up",
+                        "Margin topup triggered by negative ROI threshold.",
+                        payload={
+                            "symbol": position.symbol,
+                            "roi_pct": roi,
+                            "topup_amount_usdt": topup_amount,
+                            "topups_used": state.topups_used,
+                            "max_topups": self.config.max_topups,
+                        },
+                        severity="warning",
+                    )
+                except Exception as exc:
+                    LOG.warning("Margin topup transfer failed on %s: %s", position.symbol, exc)
+                    self._emit(
+                        "margin_topup_failed",
+                        "Margin topup transfer failed.",
+                        payload={
+                            "symbol": position.symbol,
+                            "roi_pct": roi,
+                            "topup_amount_usdt": topup_amount,
+                            "error": str(exc),
+                        },
+                        severity="error",
+                    )
+
+        if should_rebalance_after_recovery(roi, self.config.rebalance_recovery_pct, state.topups_used):
+            try:
+                rebalance_80_20(self.exchange, self.config)
+            except Exception as exc:
+                LOG.warning("Recovery rebalance failed on %s: %s", position.symbol, exc)
                 self._emit(
-                    "margin_topped_up",
-                    "Margin topup triggered by negative ROI threshold.",
+                    "cash_rebalance_failed",
+                    "Recovery rebalance failed.",
+                    payload={"symbol": position.symbol, "error": str(exc)},
+                    severity="error",
+                )
+            else:
+                state.topups_used = 0
+                self._emit(
+                    "recovery_rebalanced",
+                    "ROI recovered; 80/20 rebalance executed.",
                     payload={
                         "symbol": position.symbol,
                         "roi_pct": roi,
-                        "topup_amount_usdt": topup_amount,
-                        "topups_used": state.topups_used,
-                        "max_topups": self.config.max_topups,
+                        "recovery_threshold_pct": self.config.rebalance_recovery_pct,
                     },
-                    severity="warning",
                 )
-
-        if should_rebalance_after_recovery(roi, self.config.rebalance_recovery_pct, state.topups_used):
-            rebalance_80_20(self.exchange, self.config)
-            state.topups_used = 0
-            self._emit(
-                "recovery_rebalanced",
-                "ROI recovered; 80/20 rebalance executed.",
-                payload={
-                    "symbol": position.symbol,
-                    "roi_pct": roi,
-                    "recovery_threshold_pct": self.config.rebalance_recovery_pct,
-                },
-            )
-            LOG.info("Recovered above %.2f%% ROI. 80/20 rebalance completed.", self.config.rebalance_recovery_pct)
+                LOG.info("Recovered above %.2f%% ROI. 80/20 rebalance completed.", self.config.rebalance_recovery_pct)
 
         market_trend = self._signal_for_symbol(position.symbol)
         base_trend = self._base_side(position.side)
@@ -382,7 +415,16 @@ class LapsBot:
 
         if state.reinforcement_done and roi >= 0:
             self.exchange.close_position(position)
-            rebalance_80_20(self.exchange, self.config)
+            try:
+                rebalance_80_20(self.exchange, self.config)
+            except Exception as exc:
+                LOG.warning("Rebalance after 3x recovery failed on %s: %s", position.symbol, exc)
+                self._emit(
+                    "cash_rebalance_failed",
+                    "Cash rebalance failed after 3x recovery close.",
+                    payload={"symbol": position.symbol, "error": str(exc)},
+                    severity="error",
+                )
             self._emit(
                 "reinforcement_recovered_close",
                 "3x reinforced position recovered to break-even and was closed.",
@@ -438,9 +480,19 @@ class LapsBot:
 
         trends: dict[str, Trend] = {}
         for position in positions:
-            trend = self._manage_single_position(position)
-            if trend is not None:
-                trends[position.symbol] = trend
+            try:
+                trend = self._manage_single_position(position)
+                if trend is not None:
+                    trends[position.symbol] = trend
+            except Exception as exc:
+                LOG.exception("Position management error on %s", position.symbol)
+                self._emit(
+                    "position_management_error",
+                    "Position management failed for one symbol but cycle continues.",
+                    payload={"symbol": position.symbol, "error": str(exc)},
+                    severity="error",
+                )
+                continue
 
         refreshed_positions = self.exchange.fetch_open_positions(self.config.symbols)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
