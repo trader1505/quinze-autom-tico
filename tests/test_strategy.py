@@ -50,3 +50,18 @@ def test_recovery_3x_after_opposite_then_return():
     assert fired.orders[0].reason == "recovery_3x"
     assert fired.orders[0].notional_usdt == 12.0
     assert any(event.type == "recovery_fired" for event in fired.events)
+
+
+def test_recovery_armed_event_emitted_once_while_pending():
+    settings = BotSettings(recovery_multiplier=3.0, min_notional_usdt=1.0)
+    strategy = StrategyEngine(settings)
+    balances = BalanceSnapshot(spot_usdt=80, futures_wallet_usdt=20, futures_free_usdt=20, margin_ratio=0.2)
+    position = Position(side=Side.LONG, quantity=0.04, entry_price=100, mark_price=80)
+    state = BotState(recovery_anchor_side=Side.LONG, recovery_base_notional=4.0, pending_3x=False)
+    opposite_signal = TrendSignal(side=Side.SHORT, ema_short=90, ema_long=100, confirmed=True)
+
+    first = strategy.evaluate(opposite_signal, balances, position, state)
+    second = strategy.evaluate(opposite_signal, balances, position, first.state)
+
+    assert any(event.type == "recovery_armed" for event in first.events)
+    assert not any(event.type == "recovery_armed" for event in second.events)

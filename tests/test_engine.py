@@ -2,6 +2,35 @@ from laps1505_bot.config import BotSettings
 from laps1505_bot.engine import TradingEngine
 from laps1505_bot.gateway import SimulationGateway
 from laps1505_bot.models import BalanceSnapshot, Position, Side
+from laps1505_bot.strategy import StrategyResult
+
+
+def test_engine_processes_strategy_once_per_interval_bucket():
+    settings = BotSettings(dry_run=True)
+    gateway = SimulationGateway(
+        close_prices=list(range(100, 170)),
+        balances=BalanceSnapshot(
+            spot_usdt=80.0,
+            futures_wallet_usdt=20.0,
+            futures_free_usdt=20.0,
+            margin_ratio=0.2,
+        ),
+        position=Position(side=Side.FLAT, quantity=0, entry_price=0, mark_price=160),
+    )
+    engine = TradingEngine(settings, gateway)
+    call_counter = {"count": 0}
+
+    def fake_evaluate(*args, **kwargs):
+        _ = args, kwargs
+        call_counter["count"] += 1
+        return StrategyResult(orders=[], state=engine.state, events=[])
+
+    engine.strategy.evaluate = fake_evaluate  # type: ignore[assignment]
+
+    engine.cycle_once()
+    engine.cycle_once()
+
+    assert call_counter["count"] == 1
 
 
 def test_engine_cycle_generates_entry_event():

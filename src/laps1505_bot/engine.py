@@ -28,6 +28,28 @@ class TradingEngine:
         self._lock = threading.Lock()
         self.last_cycle_at: datetime | None = None
         self.last_error: str | None = None
+        self.last_strategy_bucket_at: datetime | None = None
+
+    def _interval_seconds(self) -> int:
+        interval = self.settings.interval.strip().lower()
+        if len(interval) < 2:
+            raise ValueError(f"Invalid interval: {self.settings.interval}")
+        value = int(interval[:-1])
+        unit = interval[-1]
+        if value <= 0:
+            raise ValueError(f"Invalid interval: {self.settings.interval}")
+        if unit == "m":
+            return value * 60
+        if unit == "h":
+            return value * 3600
+        if unit == "d":
+            return value * 86400
+        raise ValueError(f"Unsupported interval unit: {self.settings.interval}")
+
+    def _current_interval_bucket(self, now_utc: datetime) -> datetime:
+        seconds = self._interval_seconds()
+        bucket_epoch = int(now_utc.timestamp() // seconds * seconds)
+        return datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
 
     def _append_event(self, event: EngineEvent) -> None:
         with self._lock:
@@ -42,17 +64,28 @@ class TradingEngine:
                 interval=self.settings.interval,
                 limit=max(self.settings.ema_long_period + 5, 60),
             )
-            signal = detect_trend(closes, self.settings.ema_short_period, self.settings.ema_long_period)
+            if len(closes) < self.settings.ema_long_period + 2:
+                raise ValueError("Not enough candles to process closed-candle strategy")
+            closed_closes = closes[:-1]
             balances = self.gateway.get_balances()
             position = self.gateway.get_position(self.settings.symbol)
             position.mark_price = closes[-1]
 
-            strategy_result = self.strategy.evaluate(signal, balances, position, self.state)
-            self.state = strategy_result.state
-            for order in strategy_result.orders:
-                self.gateway.place_order(order)
-            for event in strategy_result.events:
-                self._append_event(event)
+            now_utc = datetime.now(timezone.utc)
+            current_bucket = self._current_interval_bucket(now_utc)
+            if self.last_strategy_bucket_at != current_bucket:
+                signal = detect_trend(
+                    closed_closes,
+                    self.settings.ema_short_period,
+                    self.settings.ema_long_period,
+                )
+                strategy_result = self.strategy.evaluate(signal, balances, position, self.state)
+                self.state = strategy_result.state
+                for order in strategy_result.orders:
+                    self.gateway.place_order(order)
+                for event in strategy_result.events:
+                    self._append_event(event)
+                self.last_strategy_bucket_at = current_bucket
 
             risk_result = self.risk.evaluate(balances)
             for transfer in risk_result.transfers:
@@ -100,6 +133,7 @@ class TradingEngine:
             "interval": self.settings.interval,
             "dry_run": self.settings.dry_run,
             "last_cycle_at": self.last_cycle_at.isoformat() if self.last_cycle_at else None,
+            "last_strategy_bucket_at": self.last_strategy_bucket_at.isoformat() if self.last_strategy_bucket_at else None,
             "last_error": self.last_error,
             "balances": asdict(balances),
             "position": asdict(position),

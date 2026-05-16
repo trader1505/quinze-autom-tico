@@ -16,6 +16,7 @@ Bot profissional para operar **Binance Futures** com:
 ### 1) Motor de sinal
 - Lê candles de 15 minutos.
 - Calcula EMA 12 e EMA 26.
+- Processa somente **candle fechado** (evita ruído intrabar).
 - Somente considera sinal quando há **confirmação** (cruzamento mantido em 2 candles seguidos).
 
 ### 2) Motor de entrada

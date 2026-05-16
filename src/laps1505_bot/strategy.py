@@ -87,17 +87,19 @@ class StrategyEngine:
 
         # Opposite confirmed trend arms the 3x recovery (no immediate reverse).
         if signal.confirmed and signal.side != position.side:
+            should_emit_arm_event = not state.pending_3x or state.recovery_anchor_side != position.side
             state.pending_3x = True
             if state.recovery_base_notional <= 0:
                 state.recovery_base_notional = max(position.notional, self.settings.min_notional_usdt)
             state.recovery_anchor_side = position.side
-            events.append(
-                EngineEvent(
-                    type="recovery_armed",
-                    message="Tendência oposta detectada, aguardando reconfirmação para 3x",
-                    payload={"anchor_side": position.side.value, "base_notional": state.recovery_base_notional},
+            if should_emit_arm_event:
+                events.append(
+                    EngineEvent(
+                        type="recovery_armed",
+                        message="Tendência oposta detectada, aguardando reconfirmação para 3x",
+                        payload={"anchor_side": position.side.value, "base_notional": state.recovery_base_notional},
+                    )
                 )
-            )
 
         # If trend returns to original side, add 3x notional for recovery.
         if signal.confirmed and state.pending_3x and signal.side == state.recovery_anchor_side:
