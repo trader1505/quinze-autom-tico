@@ -51,36 +51,59 @@ class LapsBot:
 
     def _open_new_position(self) -> None:
         free_usdt = self.exchange.free_futures_usdt()
-        entry_usdt = target_entry_usdt(free_usdt, self.config.balance_risk_pct)
-        symbol, amount, price = self.exchange.choose_symbol_and_amount_for_exact_usdt(self.config.symbols, entry_usdt)
+        target_margin_usdt = target_entry_usdt(free_usdt, self.config.balance_risk_pct)
+        try:
+            symbol, amount, price, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
+                self.config.symbols,
+                target_margin_usdt,
+                self.config.leverage,
+            )
+        except RuntimeError as exc:
+            LOG.warning("Entry skipped: %s", exc)
+            return
         trend = self._signal_for_symbol(symbol)
         if trend == Trend.FLAT:
             LOG.info("Signal is FLAT on %s. Waiting.", symbol)
             return
 
         self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
-        self.state.initial_entry_usdt = entry_usdt
+        self.state.initial_entry_usdt = used_margin
         self.state.topups_used = 0
         self.state.reinforcement_alert = False
         self.state.reinforcement_done = False
         LOG.info(
-            "Opened %s on %s with %.8f contracts (price %.8f, target %.8f USDT).",
+            "Opened %s on %s with %.8f contracts (price %.8f, target margin %.8f USDT, used margin %.8f USDT, leverage %sx).",
             trend.value,
             symbol,
             amount,
             price,
-            entry_usdt,
+            target_margin_usdt,
+            used_margin,
+            self.config.leverage,
         )
 
     def _handle_reinforcement(self, symbol: str, base_trend: Trend) -> None:
         if self.state.initial_entry_usdt <= 0:
             return
-        reinforce_usdt = self.state.initial_entry_usdt * self.config.reinforcement_multiplier
-        symbol, amount, _ = self.exchange.choose_symbol_and_amount_for_exact_usdt([symbol], reinforce_usdt)
+        reinforce_margin = self.state.initial_entry_usdt * self.config.reinforcement_multiplier
+        try:
+            symbol, amount, _, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
+                [symbol],
+                reinforce_margin,
+                self.config.leverage,
+            )
+        except RuntimeError as exc:
+            LOG.warning("3x reinforcement skipped: %s", exc)
+            return
         self.exchange.create_market_position(symbol, base_trend, amount, reduce_only=False)
         self.state.reinforcement_alert = False
         self.state.reinforcement_done = True
-        LOG.warning("3x reinforcement executed: %.8f USDT on %s.", reinforce_usdt, symbol)
+        LOG.warning(
+            "3x reinforcement executed on %s with used margin %.8f USDT (target %.8f USDT).",
+            symbol,
+            used_margin,
+            reinforce_margin,
+        )
 
     def _manage_open_position(self) -> None:
         position = self.exchange.fetch_open_position(self.config.symbols)

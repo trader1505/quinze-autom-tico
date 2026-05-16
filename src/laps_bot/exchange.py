@@ -16,6 +16,7 @@ LOG = logging.getLogger(__name__)
 class ExchangeGateway:
     def __init__(self, config: BotConfig) -> None:
         self.config = config
+        self._leverage_cache: dict[str, int] = {}
         self.exchange = ccxt.binanceusdm(
             {
                 "apiKey": config.api_key,
@@ -111,36 +112,99 @@ class ExchangeGateway:
             return False
         return True
 
-    def choose_symbol_and_amount_for_exact_usdt(
+    def ensure_leverage(self, symbol: str, requested_leverage: int) -> int:
+        cached = self._leverage_cache.get(symbol)
+        if cached == requested_leverage:
+            return cached
+        response = self.exchange.set_leverage(requested_leverage, symbol)
+        applied = int(response.get("leverage") or requested_leverage)
+        if applied != requested_leverage:
+            LOG.warning(
+                "Requested leverage %s on %s but exchange applied %s.",
+                requested_leverage,
+                symbol,
+                applied,
+            )
+        self._leverage_cache[symbol] = applied
+        return applied
+
+    def _minimum_margin_for_symbol(self, symbol: str, leverage: Decimal, price: Decimal) -> Decimal | None:
+        market = self.exchange.market(symbol)
+        amount_limits = market.get("limits", {}).get("amount", {})
+        cost_limits = market.get("limits", {}).get("cost", {})
+        min_amount = amount_limits.get("min")
+        min_cost = cost_limits.get("min")
+
+        candidates: list[Decimal] = []
+        if min_cost is not None:
+            candidates.append(Decimal(str(min_cost)) / leverage)
+        if min_amount is not None:
+            candidates.append((Decimal(str(min_amount)) * price) / leverage)
+        if not candidates:
+            return None
+        return max(candidates)
+
+    def choose_symbol_and_amount_for_exact_margin(
         self,
         symbols: Iterable[str],
-        target_usdt: float,
-    ) -> tuple[str, float, float]:
-        if target_usdt <= 0:
+        target_margin_usdt: float,
+        leverage: int,
+    ) -> tuple[str, float, float, float]:
+        if target_margin_usdt <= 0:
             raise ValueError("Target size must be positive.")
 
-        target = Decimal(str(target_usdt))
+        target_margin = Decimal(str(target_margin_usdt))
+        leverage_dec = Decimal(str(leverage))
+        target_notional = target_margin * leverage_dec
+        min_margin_required: Decimal | None = None
+        nearest: tuple[Decimal, str, float, float, float] | None = None
+
         for symbol in symbols:
+            try:
+                applied_leverage = self.ensure_leverage(symbol, leverage)
+            except Exception as exc:
+                LOG.warning("Cannot set leverage on %s: %s", symbol, exc)
+                continue
+
+            applied_leverage_dec = Decimal(str(applied_leverage))
             price = Decimal(str(self.fetch_last_price(symbol)))
             step = self._amount_step(symbol)
             if step <= 0:
                 continue
-            raw_contracts = target / price / step
+            symbol_min_margin = self._minimum_margin_for_symbol(symbol, applied_leverage_dec, price)
+            if symbol_min_margin is not None:
+                if min_margin_required is None or symbol_min_margin < min_margin_required:
+                    min_margin_required = symbol_min_margin
+
+            raw_contracts = target_notional / price / step
             rounded_steps = raw_contracts.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             amount = (rounded_steps * step).normalize()
             if amount <= 0:
                 continue
             amount_f = float(amount)
-            cost = float(amount * price)
-            if not self._validate_limits(symbol, amount_f, cost):
+            notional = amount * price
+            notional_f = float(notional)
+            if not self._validate_limits(symbol, amount_f, notional_f):
                 continue
-            # "Exato": o bot só aceita se o valor estiver matematicamente no alvo.
-            if math.isclose(cost, target_usdt, rel_tol=0.0, abs_tol=1e-8):
-                return symbol, amount_f, float(price)
-        raise RuntimeError(
-            "No symbol can place an order with exactly 1% notional. "
-            "Add more symbols in LAPS_SYMBOLS or adjust account size."
-        )
+            used_margin = notional / applied_leverage_dec
+            delta = abs(used_margin - target_margin)
+            if nearest is None or delta < nearest[0]:
+                nearest = (delta, symbol, amount_f, float(price), float(used_margin))
+
+            # "Exato": o bot só aceita se o valor de margem estiver no alvo.
+            if math.isclose(float(used_margin), target_margin_usdt, rel_tol=0.0, abs_tol=1e-8):
+                return symbol, amount_f, float(price), float(used_margin)
+
+        details = [
+            "No symbol can place an order with exactly the configured margin target.",
+            f"Requested margin target: {target_margin_usdt:.8f} USDT at {leverage}x.",
+        ]
+        if min_margin_required is not None:
+            details.append(f"Minimum margin required (approx.): {float(min_margin_required):.8f} USDT.")
+        if nearest is not None:
+            _, sym, _, _, nearest_margin = nearest
+            details.append(f"Nearest match found on {sym}: {nearest_margin:.8f} USDT margin.")
+        raise RuntimeError(" ".join(details))
 
     def create_market_position(
         self,
@@ -149,6 +213,7 @@ class ExchangeGateway:
         amount: float,
         reduce_only: bool = False,
     ) -> dict:
+        self.ensure_leverage(symbol, self.config.leverage)
         side = "buy" if trend == Trend.LONG else "sell"
         params = {"reduceOnly": reduce_only}
         LOG.info("Sending %s order: symbol=%s amount=%s reduceOnly=%s", side, symbol, amount, reduce_only)

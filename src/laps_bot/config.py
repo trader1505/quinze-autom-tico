@@ -30,6 +30,7 @@ class BotConfig:
     slow_ma: int
     max_positions: int
     balance_risk_pct: float
+    leverage: int
     target_roi_pct: float
     add_margin_trigger_pct: float
     rebalance_recovery_pct: float
@@ -60,6 +61,7 @@ def load_config() -> BotConfig:
         slow_ma=_read_int("LAPS_SLOW_MA", 26),
         max_positions=_read_int("LAPS_MAX_POSITIONS", 1),
         balance_risk_pct=_read_float("LAPS_BALANCE_RISK_PCT", 1.0),
+        leverage=_read_int("LAPS_LEVERAGE", 20),
         target_roi_pct=_read_float("LAPS_TARGET_ROI_PCT", 100.0),
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
         rebalance_recovery_pct=_read_float("LAPS_REBALANCE_RECOVERY_PCT", -31.0),
@@ -77,4 +79,6 @@ def load_config() -> BotConfig:
         raise ValueError("Spot and futures targets must sum to 100.")
     if cfg.balance_risk_pct <= 0:
         raise ValueError("LAPS_BALANCE_RISK_PCT must be positive.")
+    if cfg.leverage <= 0:
+        raise ValueError("LAPS_LEVERAGE must be positive.")
     return cfg

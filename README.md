@@ -4,7 +4,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 
 - timeframe **15m**
 - medias moveis simples **12 e 26**
-- entrada com **1% do saldo livre de futuros**
+- entrada com **1% do saldo livre de futuros (margem usada)**
 - alvo de fechamento no **ROI +100%**
 - rebalanceamento de capital **80% spot / 20% futuros**
 - protecao por topup de margem em queda
@@ -21,7 +21,8 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 2. Se nao houver posicao aberta, abre imediatamente uma operacao na direcao atual.
 3. Tamanho da entrada:
    - usa **1% do saldo livre de futuros**
-   - tenta executar com valor **exato**
+   - calcula notional com base em alavancagem (`LAPS_LEVERAGE`)
+   - tenta executar margem com valor **exato**
    - se o simbolo principal nao suporta exato por regra de lote/notional, escaneia simbolos de fallback definidos em `LAPS_SYMBOLS`.
 4. Quando ROI da posicao atingir **+100%**, fecha 100% da posicao.
 5. Apos fechar, executa rebalanceamento para manter **80/20 (spot/futuros)**.
@@ -86,6 +87,7 @@ python run_bot.py
 - `LAPS_SYMBOLS`: simbolo principal e fallback (ex.: `BTC/USDT:USDT,ETH/USDT:USDT`)
 - `LAPS_MAX_POSITIONS`: nesta versao deve ficar `1`
 - `LAPS_BALANCE_RISK_PCT`: `%` da entrada inicial (default `1`)
+- `LAPS_LEVERAGE`: alavancagem usada para transformar alvo de margem em notional (default `125`)
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: gatilho topup (default `-60`)
 - `LAPS_REBALANCE_RECOVERY_PCT`: gatilho de recuperacao (default `-31`)
@@ -101,3 +103,4 @@ python run_bot.py
 3. Use chave de API sem permissao de saque.
 4. Defina alertas externos de erro e latencia.
 5. Comece com saldo minimo de teste antes de escalar.
+6. Se aparecer log de "No symbol can place an order with exactly the configured margin target", ajuste os simbolos de fallback ou o saldo/alavancagem.
