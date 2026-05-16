@@ -48,6 +48,21 @@ read_secret() {
   printf -v "${var_name}" '%s' "${value}"
 }
 
+read_env_key() {
+  local file_path="$1"
+  local key="$2"
+  if [ ! -f "${file_path}" ]; then
+    return 1
+  fi
+  local value
+  value="$(awk -F= -v k="${key}" '$1==k{print substr($0, index($0, "=")+1); exit}' "${file_path}" 2>/dev/null || true)"
+  if [ -n "${value}" ]; then
+    printf '%s' "${value}"
+    return 0
+  fi
+  return 1
+}
+
 cleanup_old_runtime() {
   # Prevent deleting the shell's current working directory.
   cd /
@@ -57,12 +72,8 @@ cleanup_old_runtime() {
   docker ps --filter "publish=${BOT_PORT}" -q | xargs -r docker rm -f
   fuser -k "${BOT_PORT}/tcp" 2>/dev/null || true
 
-  if [ -f "${APP_DIR}/docker-compose.yml" ]; then
-    docker compose --env-file /dev/null -f "${APP_DIR}/docker-compose.yml" down --remove-orphans || true
-  fi
-  if [ -f "${LEGACY_DIR}/docker-compose.yml" ]; then
-    docker compose --env-file /dev/null -f "${LEGACY_DIR}/docker-compose.yml" down --remove-orphans || true
-  fi
+  docker rm -f laps1505-bot 2>/dev/null || true
+  docker network rm laps1505_default 2>/dev/null || true
 
   log "Apagando pastas antigas..."
   rm -rf "${APP_DIR}"
@@ -130,8 +141,30 @@ wait_and_boot_engine() {
 main() {
   require_root
   install_docker_if_needed
-  read_secret "Digite BINANCE_API_KEY (oculto): " BINANCE_API_KEY
-  read_secret "Digite BINANCE_API_SECRET (oculto): " BINANCE_API_SECRET
+
+  BINANCE_API_KEY="${BINANCE_API_KEY:-}"
+  BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
+
+  if [ -z "${BINANCE_API_KEY}" ]; then
+    BINANCE_API_KEY="$(read_env_key "${APP_DIR}/.env" "BINANCE_API_KEY" || true)"
+  fi
+  if [ -z "${BINANCE_API_KEY}" ]; then
+    BINANCE_API_KEY="$(read_env_key "${LEGACY_DIR}/.env" "BINANCE_API_KEY" || true)"
+  fi
+  if [ -z "${BINANCE_API_SECRET}" ]; then
+    BINANCE_API_SECRET="$(read_env_key "${APP_DIR}/.env" "BINANCE_API_SECRET" || true)"
+  fi
+  if [ -z "${BINANCE_API_SECRET}" ]; then
+    BINANCE_API_SECRET="$(read_env_key "${LEGACY_DIR}/.env" "BINANCE_API_SECRET" || true)"
+  fi
+
+  if [ -z "${BINANCE_API_KEY}" ]; then
+    read_secret "Digite BINANCE_API_KEY (oculto): " BINANCE_API_KEY
+  fi
+  if [ -z "${BINANCE_API_SECRET}" ]; then
+    read_secret "Digite BINANCE_API_SECRET (oculto): " BINANCE_API_SECRET
+  fi
+
   cleanup_old_runtime
   fresh_clone
   write_env "${BINANCE_API_KEY}" "${BINANCE_API_SECRET}"
