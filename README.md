@@ -38,18 +38,24 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 ```text
 .
 ├── run_bot.py
+├── run_panel.py
 ├── requirements.txt
 ├── .env.example
-└── src/laps_bot
-    ├── bot.py
-    ├── config.py
-    ├── exchange.py
-    ├── indicators.py
-    ├── logger.py
-    ├── models.py
-    ├── rebalance.py
-    ├── risk.py
-    └── strategy.py
+└── src
+    ├── laps_bot
+    │   ├── bot.py
+    │   ├── config.py
+    │   ├── exchange.py
+    │   ├── indicators.py
+    │   ├── logger.py
+    │   ├── models.py
+    │   ├── rebalance.py
+    │   ├── risk.py
+    │   ├── strategy.py
+    │   └── telemetry.py
+    └── laps_panel
+        ├── server.py
+        └── static/index.html
 ```
 
 ## Instalar no VPS
@@ -82,6 +88,16 @@ export LAPS_SANDBOX=false
 python run_bot.py
 ```
 
+Painel web (preto/dourado estilo Bloomberg):
+
+```bash
+python run_panel.py
+```
+
+Depois acesse:
+
+`http://IP_DO_VPS:8080`
+
 ## Principais variaveis
 
 - `LAPS_SYMBOLS`: simbolo principal e fallback (ex.: `BTC/USDT:USDT,ETH/USDT:USDT`)
@@ -95,6 +111,27 @@ python run_bot.py
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
 - `LAPS_MARGIN_TOPUP_PCT`: percentual transferido no topup (default `20`)
 - `LAPS_MAX_TOPUPS`: quantidade de "vidas" (default `4`)
+- `LAPS_TELEMETRY_DIR`: pasta de eventos/estado para painel (default `runtime`)
+- `LAPS_PANEL_HOST`: host do painel (default `0.0.0.0`)
+- `LAPS_PANEL_PORT`: porta do painel (default `8080`)
+
+## Painel Bloomberg (preto/dourado)
+
+O painel mostra em tempo real:
+
+- status do bot
+- simbolo/lado da posicao
+- ROI atual
+- quantidade de topups usados
+- feed completo de eventos
+
+### Sons no painel
+
+- `tp_hit`: som de TP
+- `reinforcement_recovered_close`: som de 3x recuperado
+- `cash_rebalance`: som de cash (moeda caindo estridente)
+
+> O navegador exige clique do usuario para liberar audio. Clique em **Ativar som** no canto superior do painel.
 
 ## Operacao segura (obrigatorio)
 

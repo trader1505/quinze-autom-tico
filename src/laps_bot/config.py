@@ -41,6 +41,9 @@ class BotConfig:
     max_topups: int
     poll_seconds: int
     log_level: str
+    telemetry_dir: str
+    panel_host: str
+    panel_port: int
 
 
 def load_config() -> BotConfig:
@@ -72,6 +75,9 @@ def load_config() -> BotConfig:
         max_topups=_read_int("LAPS_MAX_TOPUPS", 4),
         poll_seconds=_read_int("LAPS_POLL_SECONDS", 20),
         log_level=os.getenv("LAPS_LOG_LEVEL", "INFO"),
+        telemetry_dir=os.getenv("LAPS_TELEMETRY_DIR", "runtime"),
+        panel_host=os.getenv("LAPS_PANEL_HOST", "0.0.0.0"),
+        panel_port=_read_int("LAPS_PANEL_PORT", 8080),
     )
     if cfg.fast_ma >= cfg.slow_ma:
         raise ValueError("Fast MA must be lower than slow MA.")
@@ -81,4 +87,6 @@ def load_config() -> BotConfig:
         raise ValueError("LAPS_BALANCE_RISK_PCT must be positive.")
     if cfg.leverage <= 0:
         raise ValueError("LAPS_LEVERAGE must be positive.")
+    if cfg.panel_port <= 0:
+        raise ValueError("LAPS_PANEL_PORT must be positive.")
     return cfg

@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LAPS Bloomberg Panel</title>
+    <style>
+      :root {
+        --bg: #050505;
+        --bg-soft: #111111;
+        --gold: #f5c453;
+        --gold-soft: #8a6a21;
+        --text: #f6f0dd;
+        --danger: #ff5f5f;
+        --ok: #5cff96;
+        --warn: #ffd86f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top right, #17120a 0%, var(--bg) 48%);
+        color: var(--text);
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      .layout {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .title {
+        font-size: 26px;
+        letter-spacing: 1.4px;
+        color: var(--gold);
+        font-weight: 700;
+      }
+      .subtitle {
+        color: #bfa67b;
+        font-size: 13px;
+      }
+      .btn {
+        background: var(--gold);
+        color: #171104;
+        border: none;
+        border-radius: 6px;
+        padding: 9px 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .card {
+        background: var(--bg-soft);
+        border: 1px solid #31240f;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .card .label {
+        color: #a08b60;
+        font-size: 11px;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .card .value {
+        font-size: 18px;
+        font-weight: 700;
+      }
+      .value.ok {
+        color: var(--ok);
+      }
+      .value.warn {
+        color: var(--warn);
+      }
+      .value.danger {
+        color: var(--danger);
+      }
+      .feed {
+        background: var(--bg-soft);
+        border: 1px solid #31240f;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        font-size: 13px;
+        border-bottom: 1px solid #1f1608;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #1a1409;
+        color: var(--gold);
+      }
+      tr.error td {
+        color: #ffb3b3;
+      }
+      tr.warning td {
+        color: #ffe7a5;
+      }
+      .chip {
+        border-radius: 999px;
+        padding: 2px 8px;
+        border: 1px solid #5a4518;
+        background: #2b210e;
+        display: inline-block;
+        white-space: nowrap;
+      }
+      .small {
+        font-size: 12px;
+        color: #a08b60;
+      }
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="header">
+        <div>
+          <div class="title">LAPS BLOOMBERG OPS PANEL</div>
+          <div class="subtitle">Painel operacional em tempo real (preto/dourado)</div>
+        </div>
+        <button id="soundBtn" class="btn">Ativar som</button>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="label">Status Bot</div>
+          <div id="status" class="value">-</div>
+        </div>
+        <div class="card">
+          <div class="label">Simbolo</div>
+          <div id="symbol" class="value">-</div>
+        </div>
+        <div class="card">
+          <div class="label">Lado</div>
+          <div id="side" class="value">-</div>
+        </div>
+        <div class="card">
+          <div class="label">ROI Atual</div>
+          <div id="roi" class="value">-</div>
+        </div>
+        <div class="card">
+          <div class="label">Topups usados</div>
+          <div id="topups" class="value">0</div>
+        </div>
+        <div class="card">
+          <div class="label">Atualizado em</div>
+          <div id="updatedAt" class="value small">-</div>
+        </div>
+      </div>
+
+      <div class="feed">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 170px">Hora UTC</th>
+              <th style="width: 200px">Evento</th>
+              <th>Mensagem</th>
+              <th style="width: 320px">Payload</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const seen = new Set();
+      let audioEnabled = false;
+      let audioCtx = null;
+
+      const soundBtn = document.getElementById("soundBtn");
+      soundBtn.addEventListener("click", async () => {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume();
+        }
+        audioEnabled = true;
+        soundBtn.textContent = "Som ativo";
+      });
+
+      function playTone(freq, start, duration, type = "sine", gain = 0.06) {
+        if (!audioEnabled || !audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const amp = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, start);
+        amp.gain.setValueAtTime(0.0001, start);
+        amp.gain.exponentialRampToValueAtTime(gain, start + 0.02);
+        amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        osc.connect(amp);
+        amp.connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + duration + 0.02);
+      }
+
+      function playTpSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(660, t, 0.18, "triangle", 0.08);
+        playTone(880, t + 0.12, 0.2, "triangle", 0.09);
+        playTone(1046, t + 0.24, 0.24, "triangle", 0.1);
+      }
+
+      function playRecovered3xSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(330, t, 0.14, "sawtooth", 0.07);
+        playTone(440, t + 0.1, 0.14, "sawtooth", 0.07);
+        playTone(660, t + 0.2, 0.18, "sawtooth", 0.08);
+        playTone(990, t + 0.3, 0.25, "sawtooth", 0.08);
+      }
+
+      function playCashSound() {
+        const t = audioCtx.currentTime + 0.02;
+        for (let i = 0; i < 7; i++) {
+          const freq = 1400 + i * 170;
+          playTone(freq, t + i * 0.03, 0.08, "square", 0.05);
+        }
+      }
+
+      function maybePlayEventSound(type) {
+        if (!audioEnabled || !audioCtx) return;
+        if (type === "tp_hit") playTpSound();
+        if (type === "reinforcement_recovered_close") playRecovered3xSound();
+        if (type === "cash_rebalance") playCashSound();
+      }
+
+      function valueClassForRoi(roi) {
+        if (roi >= 50) return "ok";
+        if (roi >= 0) return "warn";
+        return "danger";
+      }
+
+      function eventRowClass(severity) {
+        if (severity === "error") return "error";
+        if (severity === "warning") return "warning";
+        return "";
+      }
+
+      function setText(id, value) {
+        document.getElementById(id).textContent = value ?? "-";
+      }
+
+      function renderState(state) {
+        setText("status", state.status || "-");
+        setText("symbol", state.symbol || "-");
+        setText("side", state.side || "-");
+        const roiEl = document.getElementById("roi");
+        const roi = Number(state.roi_pct || 0);
+        roiEl.textContent = `${roi.toFixed(4)}%`;
+        roiEl.className = `value ${valueClassForRoi(roi)}`;
+        setText("topups", state.topups_used ?? 0);
+        setText("updatedAt", state.updated_at || "-");
+      }
+
+      function renderEvents(events) {
+        const tbody = document.getElementById("eventsBody");
+        tbody.innerHTML = "";
+        const ordered = [...events].reverse();
+        for (const ev of ordered) {
+          const tr = document.createElement("tr");
+          tr.className = eventRowClass(ev.severity);
+          const payload = ev.payload ? JSON.stringify(ev.payload) : "{}";
+          tr.innerHTML = `
+            <td>${ev.ts || "-"}</td>
+            <td><span class="chip">${ev.type || "-"}</span></td>
+            <td>${ev.message || "-"}</td>
+            <td class="small">${payload}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function refresh() {
+        try {
+          const [stateRes, eventsRes] = await Promise.all([
+            fetch("/api/state"),
+            fetch("/api/events?limit=250"),
+          ]);
+          const state = await stateRes.json();
+          const eventsPayload = await eventsRes.json();
+          const events = eventsPayload.events || [];
+          renderState(state);
+          renderEvents(events);
+
+          for (const ev of events) {
+            const key = `${ev.ts}|${ev.type}|${ev.message}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              maybePlayEventSound(ev.type);
+            }
+          }
+          if (seen.size > 4000) {
+            const trimmed = Array.from(seen).slice(-2500);
+            seen.clear();
+            for (const key of trimmed) seen.add(key);
+          }
+        } catch (err) {
+          console.error("Falha ao atualizar painel:", err);
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 2000);
+    </script>
+  </body>
+</html>
