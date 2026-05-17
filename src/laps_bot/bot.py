@@ -293,6 +293,19 @@ class LapsBot:
         if state.initial_entry_usdt <= 0:
             return
         reinforce_margin = state.initial_entry_usdt * self.config.reinforcement_multiplier
+        free_futures = self.exchange.free_futures_usdt()
+        if free_futures < reinforce_margin:
+            self._emit(
+                "reinforcement_3x_skipped",
+                "3x reinforcement skipped due insufficient free futures balance.",
+                payload={
+                    "symbol": symbol,
+                    "required_margin_usdt": reinforce_margin,
+                    "free_futures_usdt": free_futures,
+                },
+                severity="warning",
+            )
+            return
         try:
             symbol, amount, _, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
                 [symbol],

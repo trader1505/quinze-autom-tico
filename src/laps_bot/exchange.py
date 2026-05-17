@@ -85,6 +85,14 @@ class ExchangeGateway:
             if side not in {"long", "short"}:
                 continue
             symbol = item["symbol"]
+            leverage_raw = item.get("leverage")
+            if leverage_raw is None:
+                leverage_raw = (item.get("info") or {}).get("leverage")
+            if leverage_raw is not None:
+                try:
+                    self._leverage_cache[symbol] = int(float(leverage_raw))
+                except (TypeError, ValueError):
+                    pass
             entry_price = float(item.get("entryPrice") or 0.0)
             unrealized_pnl = float(item.get("unrealizedPnl") or 0.0)
             initial_margin = float(item.get("initialMargin") or 0.0)
@@ -155,7 +163,18 @@ class ExchangeGateway:
         cached = self._leverage_cache.get(symbol)
         if cached == requested_leverage:
             return cached
-        response = self.exchange.set_leverage(requested_leverage, symbol)
+        try:
+            response = self.exchange.set_leverage(requested_leverage, symbol)
+        except Exception as exc:
+            if cached is not None:
+                LOG.warning(
+                    "Cannot set leverage on %s (%s). Reusing cached leverage %s.",
+                    symbol,
+                    exc,
+                    cached,
+                )
+                return cached
+            raise
         applied = int(response.get("leverage") or requested_leverage)
         if applied != requested_leverage:
             LOG.warning(
@@ -195,8 +214,9 @@ class ExchangeGateway:
         target_margin = Decimal(str(target_margin_usdt))
         leverage_dec = Decimal(str(leverage))
         target_notional = target_margin * leverage_dec
+        tolerance_pct = Decimal(str(self.config.margin_match_tolerance_pct))
         min_margin_required: Decimal | None = None
-        nearest: tuple[Decimal, str, float, float, float] | None = None
+        nearest: tuple[Decimal, str, float, float, float, int] | None = None
 
         for symbol in symbols:
             try:
@@ -228,11 +248,25 @@ class ExchangeGateway:
             used_margin = notional / applied_leverage_dec
             delta = abs(used_margin - target_margin)
             if nearest is None or delta < nearest[0]:
-                nearest = (delta, symbol, amount_f, float(price), float(used_margin))
+                nearest = (delta, symbol, amount_f, float(price), float(used_margin), applied_leverage)
 
             # "Exato": o bot só aceita se o valor de margem estiver no alvo.
             if math.isclose(float(used_margin), target_margin_usdt, rel_tol=0.0, abs_tol=1e-8):
                 return symbol, amount_f, float(price), float(used_margin)
+
+        if nearest is not None and target_margin > 0 and tolerance_pct > 0:
+            delta, symbol, amount_f, price_f, used_margin_f, applied_leverage = nearest
+            drift_pct = (delta / target_margin) * Decimal("100")
+            if drift_pct <= tolerance_pct:
+                LOG.warning(
+                    "Using nearest margin match on %s (requested %.8f, got %.8f, drift %.6f%%, leverage %sx).",
+                    symbol,
+                    target_margin_usdt,
+                    used_margin_f,
+                    float(drift_pct),
+                    applied_leverage,
+                )
+                return symbol, amount_f, price_f, used_margin_f
 
         details = [
             "No symbol can place an order with exactly the configured margin target.",
@@ -241,8 +275,11 @@ class ExchangeGateway:
         if min_margin_required is not None:
             details.append(f"Minimum margin required (approx.): {float(min_margin_required):.8f} USDT.")
         if nearest is not None:
-            _, sym, _, _, nearest_margin = nearest
-            details.append(f"Nearest match found on {sym}: {nearest_margin:.8f} USDT margin.")
+            _, sym, _, _, nearest_margin, nearest_leverage = nearest
+            details.append(
+                f"Nearest match found on {sym}: {nearest_margin:.8f} USDT margin (leverage {nearest_leverage}x)."
+            )
+        details.append(f"Configured margin tolerance: {self.config.margin_match_tolerance_pct:.4f}%.")
         raise RuntimeError(" ".join(details))
 
     def create_market_position(

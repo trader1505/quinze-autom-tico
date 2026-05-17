@@ -109,6 +109,7 @@ Depois acesse:
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: gatilho topup (default `-60`)
 - `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho minimo de margem (% da conta/posicao) para permitir topup (default `60`)
+- `LAPS_MARGIN_MATCH_TOLERANCE_PCT`: tolerancia de ajuste de margem para respeitar step/notional da exchange (default `0.25`)
 - `LAPS_REINFORCEMENT_MULTIPLIER`: multiplicador do reforco (default `3`)
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
 - `LAPS_MARGIN_TOPUP_PCT`: percentual transferido no topup (default `20`)
