@@ -42,6 +42,19 @@ class LapsBot:
         self.exchange = ExchangeGateway(config)
         self.position_states: dict[str, PositionRuntimeState] = {}
         self.telemetry = TelemetryStore(config.telemetry_dir)
+        self._restore_runtime_state()
+
+    def _restore_runtime_state(self) -> None:
+        snapshot = self.telemetry.read_state()
+        for item in snapshot.get("positions", []) or []:
+            symbol = item.get("symbol")
+            if not symbol:
+                continue
+            state = self._state_for_symbol(str(symbol))
+            state.topups_used = int(item.get("topups_used", 0) or 0)
+            state.reinforcement_alert = bool(item.get("reinforcement_alert", False))
+            state.reinforcement_done = bool(item.get("reinforcement_done", False))
+            state.initial_entry_usdt = float(item.get("initial_entry_usdt", 0.0) or 0.0)
 
     def _emit(self, event_type: str, message: str, payload: dict[str, Any] | None = None, severity: str = "info") -> None:
         self.telemetry.emit(event_type, message, payload=payload, severity=severity)
@@ -140,6 +153,7 @@ class LapsBot:
                 "topups_used": self.position_states.get(p.symbol, PositionRuntimeState()).topups_used,
                 "reinforcement_alert": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_alert,
                 "reinforcement_done": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_done,
+                "initial_entry_usdt": self.position_states.get(p.symbol, PositionRuntimeState()).initial_entry_usdt,
             }
             for p in positions
         ]
