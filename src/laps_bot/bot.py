@@ -48,6 +48,8 @@ class LapsBot:
         self.exchange = ExchangeGateway(config)
         self.position_states: dict[str, PositionRuntimeState] = {}
         self.telemetry = TelemetryStore(config.telemetry_dir)
+        self._symbol_universe_cache: list[str] = list(config.symbols)
+        self._symbol_universe_cached_at: float = 0.0
         self._restore_runtime_state()
 
     def _restore_runtime_state(self) -> None:
@@ -123,6 +125,48 @@ class LapsBot:
         if notional_usdt <= 0:
             return 0.0
         return notional_usdt * self.config.taker_fee_rate
+
+    def _symbol_universe(self) -> list[str]:
+        if not self.config.scan_all_symbols:
+            return list(self.config.symbols)
+
+        now = time.time()
+        if (
+            self._symbol_universe_cache
+            and now - self._symbol_universe_cached_at < self.config.symbol_universe_refresh_seconds
+        ):
+            return list(self._symbol_universe_cache)
+
+        try:
+            symbols = self.exchange.discover_tradable_symbols(
+                limit=self.config.max_scan_symbols,
+                preferred_symbols=self.config.symbols,
+            )
+        except Exception as exc:
+            LOG.warning("Failed to refresh symbol universe: %s", exc)
+            self._emit(
+                "symbol_universe_refresh_failed",
+                "Failed to refresh futures symbol universe; using previous cache.",
+                payload={"error": str(exc), "cached_symbols": len(self._symbol_universe_cache)},
+                severity="warning",
+            )
+            return list(self._symbol_universe_cache)
+
+        if not symbols:
+            return list(self._symbol_universe_cache)
+
+        self._symbol_universe_cache = symbols
+        self._symbol_universe_cached_at = now
+        self._emit(
+            "symbol_universe_refreshed",
+            "Tradable futures universe refreshed.",
+            payload={
+                "scan_all_symbols": self.config.scan_all_symbols,
+                "symbols_count": len(symbols),
+                "symbols_preview": symbols[:15],
+            },
+        )
+        return list(self._symbol_universe_cache)
 
     def _sync_state(
         self,
@@ -330,12 +374,12 @@ class LapsBot:
         )
         return free_after >= required_margin
 
-    def _open_new_position(self, blocked_symbols: set[str]) -> bool:
-        available_symbols = [symbol for symbol in self.config.symbols if symbol not in blocked_symbols]
+    def _open_new_position(self, blocked_symbols: set[str], symbol_universe: list[str]) -> bool:
+        available_symbols = [symbol for symbol in symbol_universe if symbol not in blocked_symbols]
         if not available_symbols:
             self._emit(
                 "entry_skipped",
-                "No symbols available for new slot because all configured symbols already have positions.",
+                "No symbols available for new slot because all scanned symbols already have positions.",
                 severity="warning",
             )
             return False
@@ -358,65 +402,83 @@ class LapsBot:
                 "target_margin_usdt": target_margin_usdt,
                 "risk_pct": self.config.balance_risk_pct,
                 "leverage": self.config.leverage,
-                "available_symbols": available_symbols,
+                "available_symbols_count": len(available_symbols),
+                "scan_batch_size": self.config.entry_scan_batch,
             },
         )
-        try:
-            symbol, amount, price, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
-                available_symbols,
-                target_margin_usdt,
-                self.config.leverage,
-            )
-        except RuntimeError as exc:
-            LOG.warning("Entry skipped: %s", exc)
-            self._emit("entry_skipped", str(exc), severity="warning")
-            return False
-        trend_signal = self._signal_for_symbol(symbol)
-        trend = trend_signal.trend
-        if trend == Trend.FLAT:
-            LOG.info("Signal is FLAT on %s. Waiting.", symbol)
-            self._emit(
-                "entry_skipped",
-                "Flat trend detected; entry not opened.",
-                payload={"symbol": symbol},
-                severity="warning",
-            )
-            return False
+        attempt_symbols = available_symbols[: self.config.entry_scan_batch]
+        last_error: str | None = None
 
-        self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
-        state = self._state_for_symbol(symbol)
-        state.initial_entry_usdt = used_margin
-        open_notional = amount * price
-        state.estimated_open_fees_usdt = self._estimate_taker_fee_usdt(open_notional)
-        state.topups_used = 0
-        state.reinforcement_alert = False
-        state.reinforcement_done = False
-        blocked_symbols.add(symbol)
-        LOG.info(
-            "Opened %s on %s with %.8f contracts (price %.8f, target margin %.8f USDT, used margin %.8f USDT, leverage %sx).",
-            trend.value,
-            symbol,
-            amount,
-            price,
-            target_margin_usdt,
-            used_margin,
-            self.config.leverage,
-        )
+        for symbol in attempt_symbols:
+            try:
+                _, amount, price, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
+                    [symbol],
+                    target_margin_usdt,
+                    self.config.leverage,
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            try:
+                trend_signal = self._signal_for_symbol(symbol)
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            trend = trend_signal.trend
+            if trend == Trend.FLAT:
+                continue
+
+            self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
+            used_leverage = self.exchange.active_leverage(symbol)
+            state = self._state_for_symbol(symbol)
+            state.initial_entry_usdt = used_margin
+            open_notional = amount * price
+            state.estimated_open_fees_usdt = self._estimate_taker_fee_usdt(open_notional)
+            state.topups_used = 0
+            state.reinforcement_alert = False
+            state.reinforcement_done = False
+            blocked_symbols.add(symbol)
+            LOG.info(
+                "Opened %s on %s with %.8f contracts (price %.8f, target margin %.8f USDT, used margin %.8f USDT, leverage %sx).",
+                trend.value,
+                symbol,
+                amount,
+                price,
+                target_margin_usdt,
+                used_margin,
+                used_leverage,
+            )
+            self._emit(
+                "position_opened",
+                "New market position opened.",
+                payload={
+                    "symbol": symbol,
+                    "side": trend.value,
+                    "amount": amount,
+                    "price": price,
+                    "target_margin_usdt": target_margin_usdt,
+                    "used_margin_usdt": used_margin,
+                    "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
+                    "leverage": used_leverage,
+                },
+            )
+            return True
+
+        payload: dict[str, Any] = {
+            "attempted_symbols": len(attempt_symbols),
+            "scan_batch_size": self.config.entry_scan_batch,
+            "target_margin_usdt": target_margin_usdt,
+        }
+        if last_error:
+            payload["last_error"] = last_error
         self._emit(
-            "position_opened",
-            "New market position opened.",
-            payload={
-                "symbol": symbol,
-                "side": trend.value,
-                "amount": amount,
-                "price": price,
-                "target_margin_usdt": target_margin_usdt,
-                "used_margin_usdt": used_margin,
-                "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
-                "leverage": self.config.leverage,
-            },
+            "entry_skipped",
+            "Entry skipped after scanning candidate symbols without executable non-flat setup.",
+            payload=payload,
+            severity="warning",
         )
-        return True
+        return False
 
     def _handle_reinforcement(self, symbol: str, base_trend: Trend, state: PositionRuntimeState) -> None:
         if state.initial_entry_usdt <= 0:
@@ -435,6 +497,7 @@ class LapsBot:
             self._emit("reinforcement_3x_skipped", str(exc), severity="warning")
             return
         self.exchange.create_market_position(symbol, base_trend, amount, reduce_only=False)
+        used_leverage = self.exchange.active_leverage(symbol)
         state.reinforcement_alert = False
         state.reinforcement_done = True
         reinforcement_notional = amount * price
@@ -454,6 +517,7 @@ class LapsBot:
                 "used_margin_usdt": used_margin,
                 "target_margin_usdt": reinforce_margin,
                 "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
+                "leverage": used_leverage,
                 "multiplier": self.config.reinforcement_multiplier,
             },
             severity="warning",
@@ -729,27 +793,28 @@ class LapsBot:
             return market_trend
         return market_trend
 
-    def _fill_open_slots(self, open_symbols: set[str]) -> bool:
+    def _fill_open_slots(self, open_symbols: set[str], symbol_universe: list[str]) -> bool:
         opened_any = False
         available_slots = self.config.max_positions - len(open_symbols)
         if available_slots <= 0:
             return opened_any
         for _ in range(available_slots):
-            opened = self._open_new_position(open_symbols)
+            opened = self._open_new_position(open_symbols, symbol_universe)
             if not opened:
                 break
             opened_any = True
         return opened_any
 
     def _manage_open_positions(self) -> None:
-        positions = self.exchange.fetch_open_positions(self.config.symbols)
+        symbol_universe = self._symbol_universe()
+        positions = self.exchange.fetch_open_positions(symbol_universe)
         open_symbols = {position.symbol for position in positions}
         self._drop_closed_states(open_symbols)
 
         if len(open_symbols) < self.config.max_positions:
-            opened_any = self._fill_open_slots(open_symbols)
+            opened_any = self._fill_open_slots(open_symbols, symbol_universe)
             if opened_any:
-                positions = self.exchange.fetch_open_positions(self.config.symbols)
+                positions = self.exchange.fetch_open_positions(symbol_universe)
                 open_symbols = {position.symbol for position in positions}
                 self._drop_closed_states(open_symbols)
 
@@ -773,7 +838,7 @@ class LapsBot:
                 )
                 continue
 
-        refreshed_positions = self.exchange.fetch_open_positions(self.config.symbols)
+        refreshed_positions = self.exchange.fetch_open_positions(symbol_universe)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
         self._drop_closed_states(refreshed_symbols)
         capital = self._capital_snapshot()
@@ -784,10 +849,12 @@ class LapsBot:
 
     def run_forever(self) -> None:
         LOG.info(
-            "Starting LAPS bot with symbols=%s timeframe=%s max_positions=%s",
+            "Starting LAPS bot with symbols=%s timeframe=%s max_positions=%s scan_all=%s max_scan_symbols=%s",
             self.config.symbols,
             self.config.timeframe,
             self.config.max_positions,
+            self.config.scan_all_symbols,
+            self.config.max_scan_symbols,
         )
         self._sync_state("running", capital=self._capital_snapshot())
         self._emit(
@@ -795,10 +862,13 @@ class LapsBot:
             "LAPS bot started.",
             payload={
                 "symbols": list(self.config.symbols),
+                "scan_all_symbols": self.config.scan_all_symbols,
+                "max_scan_symbols": self.config.max_scan_symbols,
                 "timeframe": self.config.timeframe,
                 "risk_pct": self.config.balance_risk_pct,
                 "target_roi_pct": self.config.target_roi_pct,
                 "leverage": self.config.leverage,
+                "use_max_leverage_per_symbol": self.config.use_max_leverage_per_symbol,
                 "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
                 "max_positions": self.config.max_positions,
             },

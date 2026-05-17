@@ -17,6 +17,7 @@ class ExchangeGateway:
     def __init__(self, config: BotConfig) -> None:
         self.config = config
         self._leverage_cache: dict[str, int] = {}
+        self._max_leverage_cache: dict[str, int] = {}
         self.exchange = ccxt.binanceusdm(
             {
                 "apiKey": config.api_key,
@@ -42,6 +43,46 @@ class ExchangeGateway:
             self.spot_exchange.set_sandbox_mode(True)
         self.exchange.load_markets()
         self.spot_exchange.load_markets()
+
+    def discover_tradable_symbols(self, limit: int, preferred_symbols: Iterable[str] = ()) -> list[str]:
+        known_markets = self.exchange.markets
+        preferred = [symbol for symbol in preferred_symbols if symbol in known_markets]
+        if not self.config.scan_all_symbols:
+            return preferred
+
+        symbols: list[str] = []
+        for symbol, market in known_markets.items():
+            if not bool(market.get("active", True)):
+                continue
+            if not bool(market.get("contract", False)):
+                continue
+            if not bool(market.get("linear", False)):
+                continue
+            quote = str(market.get("quote") or "")
+            settle = str(market.get("settle") or "")
+            if quote != "USDT" and settle != "USDT":
+                continue
+            symbols.append(symbol)
+
+        volumes: dict[str, float] = {}
+        try:
+            tickers = self.exchange.fetch_tickers(symbols)
+            for symbol, ticker in tickers.items():
+                quote_volume = ticker.get("quoteVolume")
+                if quote_volume is None:
+                    quote_volume = ticker.get("baseVolume")
+                try:
+                    volumes[symbol] = float(quote_volume or 0.0)
+                except (TypeError, ValueError):
+                    volumes[symbol] = 0.0
+        except Exception as exc:
+            LOG.warning("Failed to fetch futures tickers for ranking symbols: %s", exc)
+
+        ranked = sorted(symbols, key=lambda item: volumes.get(item, 0.0), reverse=True)
+        ordered = preferred + [symbol for symbol in ranked if symbol not in preferred]
+        if limit <= 0:
+            return ordered
+        return ordered[:limit]
 
     def fetch_closes(self, symbol: str, timeframe: str, limit: int) -> list[float]:
         candles = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -159,12 +200,69 @@ class ExchangeGateway:
             return False
         return True
 
-    def ensure_leverage(self, symbol: str, requested_leverage: int) -> int:
+    def _max_leverage_from_brackets(self, symbol: str) -> int | None:
+        market = self.exchange.market(symbol)
+        market_id = str(market.get("id") or "").upper()
+        try:
+            raw = self.exchange.fapiPrivateGetLeverageBracket({"symbol": market_id})
+        except Exception as exc:
+            LOG.warning("Cannot read leverage bracket for %s: %s", symbol, exc)
+            return None
+
+        entries: list[dict] = []
+        if isinstance(raw, list):
+            entries = [item for item in raw if isinstance(item, dict)]
+        elif isinstance(raw, dict):
+            entries = [raw]
+
+        brackets: list[dict] = []
+        for entry in entries:
+            entry_symbol = str(entry.get("symbol") or "").upper()
+            if entry_symbol and entry_symbol != market_id:
+                continue
+            raw_brackets = entry.get("brackets")
+            if isinstance(raw_brackets, list):
+                brackets.extend(item for item in raw_brackets if isinstance(item, dict))
+
+        max_leverage = 0
+        for bracket in brackets:
+            try:
+                candidate = int(float(bracket.get("initialLeverage") or 0))
+            except (TypeError, ValueError):
+                continue
+            if candidate > max_leverage:
+                max_leverage = candidate
+        if max_leverage > 0:
+            return max_leverage
+
+        market_max = market.get("limits", {}).get("leverage", {}).get("max")
+        if market_max is None:
+            return None
+        try:
+            candidate = int(float(market_max))
+        except (TypeError, ValueError):
+            return None
+        return candidate if candidate > 0 else None
+
+    def max_leverage_for_symbol(self, symbol: str) -> int:
+        cached = self._max_leverage_cache.get(symbol)
+        if cached is not None:
+            return cached
+        discovered = self._max_leverage_from_brackets(symbol)
+        if discovered is None:
+            discovered = self.config.leverage
+        self._max_leverage_cache[symbol] = discovered
+        return discovered
+
+    def ensure_leverage(self, symbol: str, requested_leverage: int | None = None) -> int:
+        target = requested_leverage if requested_leverage is not None else self.config.leverage
+        if self.config.use_max_leverage_per_symbol:
+            target = self.max_leverage_for_symbol(symbol)
         cached = self._leverage_cache.get(symbol)
-        if cached == requested_leverage:
+        if cached == target:
             return cached
         try:
-            response = self.exchange.set_leverage(requested_leverage, symbol)
+            response = self.exchange.set_leverage(target, symbol)
         except Exception as exc:
             if cached is not None:
                 LOG.warning(
@@ -175,11 +273,11 @@ class ExchangeGateway:
                 )
                 return cached
             raise
-        applied = int(response.get("leverage") or requested_leverage)
-        if applied != requested_leverage:
+        applied = int(response.get("leverage") or target)
+        if applied != target:
             LOG.warning(
                 "Requested leverage %s on %s but exchange applied %s.",
-                requested_leverage,
+                target,
                 symbol,
                 applied,
             )
@@ -206,26 +304,26 @@ class ExchangeGateway:
         self,
         symbols: Iterable[str],
         target_margin_usdt: float,
-        leverage: int,
+        leverage: int | None = None,
     ) -> tuple[str, float, float, float]:
         if target_margin_usdt <= 0:
             raise ValueError("Target size must be positive.")
 
         target_margin = Decimal(str(target_margin_usdt))
-        leverage_dec = Decimal(str(leverage))
-        target_notional = target_margin * leverage_dec
+        requested_leverage = leverage if leverage is not None else self.config.leverage
         tolerance_pct = Decimal(str(self.config.margin_match_tolerance_pct))
         min_margin_required: Decimal | None = None
         nearest: tuple[Decimal, str, float, float, float, int] | None = None
 
         for symbol in symbols:
             try:
-                applied_leverage = self.ensure_leverage(symbol, leverage)
+                applied_leverage = self.ensure_leverage(symbol, requested_leverage)
             except Exception as exc:
                 LOG.warning("Cannot set leverage on %s: %s", symbol, exc)
                 continue
 
             applied_leverage_dec = Decimal(str(applied_leverage))
+            target_notional = target_margin * applied_leverage_dec
             price = Decimal(str(self.fetch_last_price(symbol)))
             step = self._amount_step(symbol)
             if step <= 0:
@@ -270,7 +368,7 @@ class ExchangeGateway:
 
         details = [
             "No symbol can place an order with exactly the configured margin target.",
-            f"Requested margin target: {target_margin_usdt:.8f} USDT at {leverage}x.",
+            f"Requested margin target: {target_margin_usdt:.8f} USDT with requested leverage {requested_leverage}x.",
         ]
         if min_margin_required is not None:
             details.append(f"Minimum margin required (approx.): {float(min_margin_required):.8f} USDT.")
@@ -294,6 +392,12 @@ class ExchangeGateway:
         params = {"reduceOnly": reduce_only}
         LOG.info("Sending %s order: symbol=%s amount=%s reduceOnly=%s", side, symbol, amount, reduce_only)
         return self.exchange.create_order(symbol, "market", side, amount, None, params)
+
+    def active_leverage(self, symbol: str) -> int:
+        cached = self._leverage_cache.get(symbol)
+        if cached is not None:
+            return cached
+        return self.ensure_leverage(symbol, self.config.leverage)
 
     def close_position(self, position: PositionState) -> dict:
         side = "sell" if position.side == "long" else "buy"

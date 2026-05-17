@@ -25,12 +25,16 @@ class RiskTests(unittest.TestCase):
             api_secret="s",
             sandbox=True,
             symbols=symbols,
+            scan_all_symbols=False,
+            max_scan_symbols=300,
+            symbol_universe_refresh_seconds=900,
             timeframe="15m",
             fast_ma=12,
             slow_ma=26,
             max_positions=max_positions,
             balance_risk_pct=1.0,
             leverage=125,
+            use_max_leverage_per_symbol=True,
             target_roi_pct=100.0,
             add_margin_trigger_pct=-60.0,
             margin_ratio_trigger_pct=60.0,
@@ -42,6 +46,7 @@ class RiskTests(unittest.TestCase):
             margin_topup_pct=20.0,
             max_topups=4,
             poll_seconds=5,
+            entry_scan_batch=80,
             log_level="INFO",
             telemetry_dir="runtime",
             panel_host="0.0.0.0",
@@ -77,6 +82,19 @@ class RiskTests(unittest.TestCase):
 
     def test_validate_config_rejects_positions_above_symbol_count(self) -> None:
         cfg = self._make_config(max_positions=3, symbols=("BTC/USDT:USDT", "ETH/USDT:USDT"))
+        with self.assertRaises(ValueError):
+            validate_config(cfg)
+
+    def test_validate_config_accepts_positions_above_symbols_when_dynamic_scan_enabled(self) -> None:
+        cfg = self._make_config(max_positions=30, symbols=("BTC/USDT:USDT",))
+        object.__setattr__(cfg, "scan_all_symbols", True)
+        object.__setattr__(cfg, "max_scan_symbols", 300)
+        validate_config(cfg)
+
+    def test_validate_config_rejects_positions_above_dynamic_scan_limit(self) -> None:
+        cfg = self._make_config(max_positions=301, symbols=("BTC/USDT:USDT",))
+        object.__setattr__(cfg, "scan_all_symbols", True)
+        object.__setattr__(cfg, "max_scan_symbols", 300)
         with self.assertRaises(ValueError):
             validate_config(cfg)
 

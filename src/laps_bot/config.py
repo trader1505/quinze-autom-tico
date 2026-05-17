@@ -25,12 +25,16 @@ class BotConfig:
     api_secret: str
     sandbox: bool
     symbols: tuple[str, ...]
+    scan_all_symbols: bool
+    max_scan_symbols: int
+    symbol_universe_refresh_seconds: int
     timeframe: str
     fast_ma: int
     slow_ma: int
     max_positions: int
     balance_risk_pct: float
     leverage: int
+    use_max_leverage_per_symbol: bool
     target_roi_pct: float
     add_margin_trigger_pct: float
     margin_ratio_trigger_pct: float
@@ -42,6 +46,7 @@ class BotConfig:
     margin_topup_pct: float
     max_topups: int
     poll_seconds: int
+    entry_scan_batch: int
     log_level: str
     telemetry_dir: str
     panel_host: str
@@ -61,12 +66,16 @@ def load_config() -> BotConfig:
         api_secret=os.getenv("LAPS_API_SECRET", ""),
         sandbox=_read_bool("LAPS_SANDBOX", True),
         symbols=symbols,
+        scan_all_symbols=_read_bool("LAPS_SCAN_ALL_SYMBOLS", False),
+        max_scan_symbols=_read_int("LAPS_MAX_SCAN_SYMBOLS", 300),
+        symbol_universe_refresh_seconds=_read_int("LAPS_SYMBOL_UNIVERSE_REFRESH_SECONDS", 900),
         timeframe=os.getenv("LAPS_TIMEFRAME", "15m"),
         fast_ma=_read_int("LAPS_FAST_MA", 12),
         slow_ma=_read_int("LAPS_SLOW_MA", 26),
         max_positions=_read_int("LAPS_MAX_POSITIONS", 1),
         balance_risk_pct=_read_float("LAPS_BALANCE_RISK_PCT", 1.0),
         leverage=_read_int("LAPS_LEVERAGE", 20),
+        use_max_leverage_per_symbol=_read_bool("LAPS_USE_MAX_LEVERAGE_PER_SYMBOL", True),
         target_roi_pct=_read_float("LAPS_TARGET_ROI_PCT", 100.0),
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
         margin_ratio_trigger_pct=_read_float("LAPS_MARGIN_RATIO_TRIGGER_PCT", 60.0),
@@ -78,6 +87,7 @@ def load_config() -> BotConfig:
         margin_topup_pct=_read_float("LAPS_MARGIN_TOPUP_PCT", 20.0),
         max_topups=_read_int("LAPS_MAX_TOPUPS", 4),
         poll_seconds=_read_int("LAPS_POLL_SECONDS", 20),
+        entry_scan_batch=_read_int("LAPS_ENTRY_SCAN_BATCH", 300),
         log_level=os.getenv("LAPS_LOG_LEVEL", "INFO"),
         telemetry_dir=os.getenv("LAPS_TELEMETRY_DIR", "runtime"),
         panel_host=os.getenv("LAPS_PANEL_HOST", "0.0.0.0"),
@@ -91,6 +101,12 @@ def load_config() -> BotConfig:
         raise ValueError("LAPS_BALANCE_RISK_PCT must be positive.")
     if cfg.leverage <= 0:
         raise ValueError("LAPS_LEVERAGE must be positive.")
+    if cfg.max_scan_symbols <= 0:
+        raise ValueError("LAPS_MAX_SCAN_SYMBOLS must be positive.")
+    if cfg.symbol_universe_refresh_seconds <= 0:
+        raise ValueError("LAPS_SYMBOL_UNIVERSE_REFRESH_SECONDS must be positive.")
+    if cfg.entry_scan_batch <= 0:
+        raise ValueError("LAPS_ENTRY_SCAN_BATCH must be positive.")
     if cfg.margin_ratio_trigger_pct <= 0:
         raise ValueError("LAPS_MARGIN_RATIO_TRIGGER_PCT must be positive.")
     if cfg.margin_match_tolerance_pct < 0:

@@ -9,7 +9,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 - rebalanceamento de capital **80% spot / 20% futuros**
 - protecao por topup de margem em queda
 - logica de reforco **3x** apos confirmacao de tendencia
-- suporte a multiplas operacoes simultaneas por simbolo (`LAPS_MAX_POSITIONS`)
+- suporte a multiplas operacoes simultaneas em ate 30+ simbolos (`LAPS_MAX_POSITIONS`)
 
 > Aviso tecnico: nenhum sistema de trading garante "zero erro". Este codigo foi estruturado com validacoes, logs e controles defensivos, mas voce deve testar primeiro em sandbox e usar monitoramento continuo.
 
@@ -21,9 +21,9 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 2. Se nao houver posicao aberta, abre imediatamente uma operacao na direcao atual.
 3. Tamanho da entrada:
    - usa **1% do saldo livre de futuros**
-   - calcula notional com base em alavancagem (`LAPS_LEVERAGE`)
+   - calcula notional com base na alavancagem (com opcao de usar **maxima por ativo**)
    - tenta executar margem com valor **exato**
-   - se o simbolo principal nao suporta exato por regra de lote/notional, escaneia simbolos de fallback definidos em `LAPS_SYMBOLS`.
+   - se um ativo nao suporta o valor exato por regra de lote/notional, tenta outros ativos da lista ou do universo dinamico (ate 300).
 4. Quando ROI da posicao atingir **+100%**, fecha 100% da posicao.
 5. Apos fechar no TP, executa rebalanceamento para manter **80/20 (spot/futuros)**.
 6. Se ROI cair ate **-60%**, transfere **20% do spot livre** para futuros (maximo de 4 topups).
@@ -104,10 +104,14 @@ Depois acesse:
 
 ## Principais variaveis
 
-- `LAPS_SYMBOLS`: simbolo principal e fallback (ex.: `BTC/USDT:USDT,ETH/USDT:USDT`)
-- `LAPS_MAX_POSITIONS`: quantidade maxima de operacoes simultaneas (nao pode ultrapassar o numero de simbolos em `LAPS_SYMBOLS`)
+- `LAPS_SYMBOLS`: simbolos prioritarios (ex.: `BTC/USDT:USDT,ETH/USDT:USDT`)
+- `LAPS_SCAN_ALL_SYMBOLS`: se `true`, escaneia universo USDT perp dinamico da Binance
+- `LAPS_MAX_SCAN_SYMBOLS`: limite de ativos no universo dinamico (default `300`)
+- `LAPS_SYMBOL_UNIVERSE_REFRESH_SECONDS`: intervalo de refresh do universo dinamico (default `900`)
+- `LAPS_MAX_POSITIONS`: quantidade maxima de operacoes simultaneas
 - `LAPS_BALANCE_RISK_PCT`: `%` da entrada inicial (default `1`)
 - `LAPS_LEVERAGE`: alavancagem usada para transformar alvo de margem em notional (default `125`)
+- `LAPS_USE_MAX_LEVERAGE_PER_SYMBOL`: se `true`, usa a alavancagem maxima permitida por ativo
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: gatilho topup (default `-60`)
 - `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho minimo de margem (% da conta/posicao) para permitir topup (default `60`)
@@ -117,6 +121,7 @@ Depois acesse:
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
 - `LAPS_MARGIN_TOPUP_PCT`: percentual transferido no topup (default `20`)
 - `LAPS_MAX_TOPUPS`: quantidade de "vidas" (default `4`)
+- `LAPS_ENTRY_SCAN_BATCH`: quantos ativos o bot tenta por slot de entrada em cada ciclo (default `300`)
 - `LAPS_TELEMETRY_DIR`: pasta de eventos/estado para painel (default `runtime`)
 - `LAPS_PANEL_HOST`: host do painel (default `0.0.0.0`)
 - `LAPS_PANEL_PORT`: porta do painel (default `8080`)
