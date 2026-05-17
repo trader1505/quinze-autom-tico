@@ -615,22 +615,9 @@ class LapsBot:
                 severity="warning",
             )
 
-        # If crossovers already formed opposite -> return while bot was offline,
-        # recover and execute 3x once to match strategy intent.
-        if not state.reinforcement_done and sequence_ready and not state.reinforcement_alert:
-            state.reinforcement_alert = True
-            self._emit(
-                "reinforcement_alert",
-                "Recovered opposite->return EMA crossover sequence from history.",
-                payload={
-                    "symbol": position.symbol,
-                    "position_side": position.side,
-                    "latest_crossover": trend_signal.latest_crossover.value if trend_signal.latest_crossover else None,
-                    "previous_crossover": trend_signal.previous_crossover.value if trend_signal.previous_crossover else None,
-                    "entry_side": base_trend.value,
-                },
-                severity="warning",
-            )
+        # Do not arm 3x from historical crossover sequence alone.
+        # Otherwise a fresh position may instantly trigger 3x from an old
+        # opposite->return pattern that happened before this entry.
 
         if crossover is not None and crossover != base_trend:
             if not state.reinforcement_alert:
