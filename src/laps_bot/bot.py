@@ -257,29 +257,30 @@ class LapsBot:
             **capital,
         )
 
-    def _signal_for_symbol(self, symbol: str) -> TrendSignal:
+    def _signal_for_symbol(self, symbol: str, emit_event: bool = True) -> TrendSignal:
         candles_needed = self.config.slow_ma + 50
         closes = self.exchange.fetch_closes(symbol, self.config.timeframe, candles_needed + 1)
         # Ignore current forming candle to avoid premature crossover triggers.
         if len(closes) > candles_needed:
             closes = closes[:-1]
         signal = resolve_trend(closes, self.config)
-        self._emit(
-            "trend_evaluated",
-            "Trend evaluated from M15 EMA crossover model.",
-            payload={
-                "symbol": symbol,
-                "timeframe": self.config.timeframe,
-                "fast_ema_period": self.config.fast_ma,
-                "slow_ema_period": self.config.slow_ma,
-                "trend": signal.trend.value,
-                "crossover": signal.crossover.value if signal.crossover else None,
-                "latest_crossover": signal.latest_crossover.value if signal.latest_crossover else None,
-                "previous_crossover": signal.previous_crossover.value if signal.previous_crossover else None,
-                "fast_ema": signal.fast_ema,
-                "slow_ema": signal.slow_ema,
-            },
-        )
+        if emit_event:
+            self._emit(
+                "trend_evaluated",
+                "Trend evaluated from M15 EMA crossover model.",
+                payload={
+                    "symbol": symbol,
+                    "timeframe": self.config.timeframe,
+                    "fast_ema_period": self.config.fast_ma,
+                    "slow_ema_period": self.config.slow_ma,
+                    "trend": signal.trend.value,
+                    "crossover": signal.crossover.value if signal.crossover else None,
+                    "latest_crossover": signal.latest_crossover.value if signal.latest_crossover else None,
+                    "previous_crossover": signal.previous_crossover.value if signal.previous_crossover else None,
+                    "fast_ema": signal.fast_ema,
+                    "slow_ema": signal.slow_ema,
+                },
+            )
         return signal
 
     def _base_side(self, side: str) -> Trend:
@@ -421,7 +422,7 @@ class LapsBot:
                 continue
 
             try:
-                trend_signal = self._signal_for_symbol(symbol)
+                trend_signal = self._signal_for_symbol(symbol, emit_event=False)
             except Exception as exc:
                 last_error = str(exc)
                 continue

@@ -111,13 +111,13 @@ def create_panel_app(telemetry_dir: str) -> Flask:
             limit = int(raw_limit)
         except ValueError:
             limit = 200
-        limit = max(1, min(limit, 10000))
+        limit = max(1, min(limit, 2000))
         return jsonify({"events": store.read_recent_events(limit=limit)}), 200
 
     @app.get("/api/summary")
     def summary() -> tuple[dict, int]:
         state = store.read_state()
-        events = store.read_events(limit=10000)
+        events = store.read_events(limit=2000)
         return jsonify(_build_summary(state, events)), 200
 
     return app

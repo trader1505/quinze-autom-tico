@@ -620,7 +620,7 @@
         try {
           const [stateRes, eventsRes, summaryRes] = await Promise.all([
             fetch("/api/state"),
-            fetch("/api/events?limit=500"),
+            fetch("/api/events?limit=200"),
             fetch("/api/summary"),
           ]);
           const state = await stateRes.json();
@@ -651,7 +651,7 @@
       }
 
       refresh();
-      setInterval(refresh, 2500);
+      setInterval(refresh, 5000);
     </script>
   </body>
 </html>
