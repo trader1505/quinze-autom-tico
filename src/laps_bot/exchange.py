@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
@@ -55,6 +56,8 @@ class ExchangeGateway:
             if not bool(market.get("active", True)):
                 continue
             if not bool(market.get("contract", False)):
+                continue
+            if not bool(market.get("swap", False)):
                 continue
             if not bool(market.get("linear", False)):
                 continue
@@ -251,19 +254,61 @@ class ExchangeGateway:
         discovered = self._max_leverage_from_brackets(symbol)
         if discovered is None:
             discovered = self.config.leverage
+        discovered = max(1, int(discovered))
+        discovered = min(discovered, 125)
         self._max_leverage_cache[symbol] = discovered
         return discovered
+
+    @staticmethod
+    def _extract_leverage_bounds(error: Exception) -> tuple[int, int] | None:
+        message = str(error).lower()
+        match = re.search(r"between\s+(\d+)\s+and\s+(\d+)", message)
+        if not match:
+            return None
+        lower = int(match.group(1))
+        upper = int(match.group(2))
+        if lower > upper:
+            return None
+        return lower, upper
 
     def ensure_leverage(self, symbol: str, requested_leverage: int | None = None) -> int:
         target = requested_leverage if requested_leverage is not None else self.config.leverage
         if self.config.use_max_leverage_per_symbol:
             target = self.max_leverage_for_symbol(symbol)
+        market_max = self.exchange.market(symbol).get("limits", {}).get("leverage", {}).get("max")
+        if market_max is not None:
+            try:
+                target = min(int(target), int(float(market_max)))
+            except (TypeError, ValueError):
+                target = int(target)
+        target = max(1, int(target))
         cached = self._leverage_cache.get(symbol)
         if cached == target:
             return cached
         try:
             response = self.exchange.set_leverage(target, symbol)
         except Exception as exc:
+            bounds = self._extract_leverage_bounds(exc)
+            if bounds is not None:
+                lower, upper = bounds
+                adjusted_target = min(max(target, lower), upper)
+                if adjusted_target != target:
+                    LOG.warning(
+                        "Leverage %s rejected on %s, retrying with %s based on exchange bounds %s-%s.",
+                        target,
+                        symbol,
+                        adjusted_target,
+                        lower,
+                        upper,
+                    )
+                    try:
+                        response = self.exchange.set_leverage(adjusted_target, symbol)
+                    except Exception:
+                        response = None
+                    else:
+                        applied = int(response.get("leverage") or adjusted_target)
+                        self._leverage_cache[symbol] = applied
+                        return applied
             if cached is not None:
                 LOG.warning(
                     "Cannot set leverage on %s (%s). Reusing cached leverage %s.",
