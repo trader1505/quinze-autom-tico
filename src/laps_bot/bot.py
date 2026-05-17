@@ -449,7 +449,22 @@ class LapsBot:
             if trend == Trend.FLAT:
                 continue
 
-            self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
+            try:
+                self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
+            except Exception as exc:
+                last_error = str(exc)
+                self._emit(
+                    "entry_skipped",
+                    "Order rejected on candidate symbol; continuing scan.",
+                    payload={
+                        "symbol": symbol,
+                        "target_margin_usdt": target_margin_usdt,
+                        "entry_mode": entry_mode,
+                        "error": str(exc),
+                    },
+                    severity="warning",
+                )
+                continue
             used_leverage = self.exchange.active_leverage(symbol)
             state = self._state_for_symbol(symbol)
             state.initial_entry_usdt = used_margin

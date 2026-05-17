@@ -14,10 +14,11 @@ from laps_bot.strategy import TrendSignal
 
 
 class _ExchangeEntryStub:
-    def __init__(self, free_futures: float) -> None:
+    def __init__(self, free_futures: float, fail_create_for: set[str] | None = None) -> None:
         self._free_futures = free_futures
         self.choose_calls: list[tuple[tuple[str, ...], float, int]] = []
         self.created_orders = 0
+        self.fail_create_for = fail_create_for or set()
 
     def free_futures_usdt(self) -> float:
         return self._free_futures
@@ -30,6 +31,8 @@ class _ExchangeEntryStub:
         return symbol, 1.0, 1.0, target_margin_usdt
 
     def create_market_position(self, symbol: str, trend: Trend, amount: float, reduce_only: bool = False) -> dict:
+        if symbol in self.fail_create_for:
+            raise RuntimeError("binanceusdm {\"code\":-4411,\"msg\":\"Please sign TradFi-Perps agreement contract.\"}")
         self.created_orders += 1
         return {"id": "order"}
 
@@ -113,6 +116,21 @@ class EntrySizingTests(unittest.TestCase):
         opened = bot._open_new_position(set(), ["ADA/USDT:USDT"])
         self.assertFalse(opened)
         self.assertEqual(bot.exchange.choose_calls, [])  # type: ignore[attr-defined]
+        self.assertIn("entry_skipped", emitted)
+
+    def test_entry_continues_scanning_when_symbol_order_is_rejected(self) -> None:
+        bot = LapsBot.__new__(LapsBot)
+        bot.config = _make_config(0.10)
+        bot.exchange = _ExchangeEntryStub(15.0, fail_create_for={"ADA/USDT:USDT"})
+        bot.position_states = {}
+        emitted: list[str] = []
+        bot._emit = lambda event_type, message, payload=None, severity="info": emitted.append(event_type)  # type: ignore[method-assign]
+        bot._signal_for_symbol = lambda symbol, emit_event=True: _signal_long()  # type: ignore[method-assign]
+
+        opened = bot._open_new_position(set(), ["ADA/USDT:USDT", "DOGE/USDT:USDT"])
+        self.assertTrue(opened)
+        self.assertEqual(bot.exchange.created_orders, 1)  # type: ignore[attr-defined]
+        self.assertGreaterEqual(len(bot.exchange.choose_calls), 2)  # type: ignore[attr-defined]
         self.assertIn("entry_skipped", emitted)
 
 

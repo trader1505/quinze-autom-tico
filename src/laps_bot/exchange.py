@@ -61,6 +61,11 @@ class ExchangeGateway:
                 continue
             if not bool(market.get("linear", False)):
                 continue
+            underlying_type = str((market.get("info") or {}).get("underlyingType") or "").upper()
+            if underlying_type and underlying_type != "COIN":
+                # Skip TradFi/stock perps and other non-crypto underlyings that may
+                # require additional agreements and can break automated trading.
+                continue
             quote = str(market.get("quote") or "")
             settle = str(market.get("settle") or "")
             if quote != "USDT" and settle != "USDT":
