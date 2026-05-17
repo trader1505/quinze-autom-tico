@@ -386,7 +386,12 @@ class LapsBot:
             return False
 
         free_usdt = self.exchange.free_futures_usdt()
-        target_margin_usdt = target_entry_usdt(free_usdt, self.config.balance_risk_pct)
+        if self.config.fixed_entry_margin_usdt > 0:
+            target_margin_usdt = self.config.fixed_entry_margin_usdt
+            entry_mode = "fixed"
+        else:
+            target_margin_usdt = target_entry_usdt(free_usdt, self.config.balance_risk_pct)
+            entry_mode = "risk_pct"
         if target_margin_usdt <= 0:
             self._emit(
                 "entry_skipped",
@@ -395,13 +400,27 @@ class LapsBot:
                 severity="warning",
             )
             return False
+        if free_usdt < target_margin_usdt:
+            self._emit(
+                "entry_skipped",
+                "Entry skipped because free futures balance is below configured entry margin.",
+                payload={
+                    "free_futures_usdt": free_usdt,
+                    "target_margin_usdt": target_margin_usdt,
+                    "entry_mode": entry_mode,
+                },
+                severity="warning",
+            )
+            return False
         self._emit(
             "entry_attempt",
-            "Attempting new entry using configured balance risk.",
+            "Attempting new entry using configured sizing mode.",
             payload={
                 "free_futures_usdt": free_usdt,
                 "target_margin_usdt": target_margin_usdt,
                 "risk_pct": self.config.balance_risk_pct,
+                "fixed_entry_margin_usdt": self.config.fixed_entry_margin_usdt,
+                "entry_mode": entry_mode,
                 "leverage": self.config.leverage,
                 "available_symbols_count": len(available_symbols),
                 "scan_batch_size": self.config.entry_scan_batch,
@@ -462,6 +481,7 @@ class LapsBot:
                     "used_margin_usdt": used_margin,
                     "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
                     "leverage": used_leverage,
+                    "entry_mode": entry_mode,
                 },
             )
             return True
@@ -867,6 +887,7 @@ class LapsBot:
                 "max_scan_symbols": self.config.max_scan_symbols,
                 "timeframe": self.config.timeframe,
                 "risk_pct": self.config.balance_risk_pct,
+                "fixed_entry_margin_usdt": self.config.fixed_entry_margin_usdt,
                 "target_roi_pct": self.config.target_roi_pct,
                 "leverage": self.config.leverage,
                 "use_max_leverage_per_symbol": self.config.use_max_leverage_per_symbol,

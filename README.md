@@ -21,6 +21,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 2. Se nao houver posicao aberta, abre imediatamente uma operacao na direcao atual.
 3. Tamanho da entrada:
    - usa **1% do saldo livre de futuros**
+   - opcionalmente pode usar valor fixo por ordem (`LAPS_FIXED_ENTRY_MARGIN_USDT`)
    - calcula notional com base na alavancagem (com opcao de usar **maxima por ativo**)
    - tenta executar margem com valor **exato**
    - se um ativo nao suporta o valor exato por regra de lote/notional, tenta outros ativos da lista ou do universo dinamico (ate 300).
@@ -110,6 +111,7 @@ Depois acesse:
 - `LAPS_SYMBOL_UNIVERSE_REFRESH_SECONDS`: intervalo de refresh do universo dinamico (default `900`)
 - `LAPS_MAX_POSITIONS`: quantidade maxima de operacoes simultaneas
 - `LAPS_BALANCE_RISK_PCT`: `%` da entrada inicial (default `1`)
+- `LAPS_FIXED_ENTRY_MARGIN_USDT`: margem fixa por ordem; se > 0, sobrescreve o modo percentual
 - `LAPS_LEVERAGE`: alavancagem usada para transformar alvo de margem em notional (default `125`)
 - `LAPS_USE_MAX_LEVERAGE_PER_SYMBOL`: se `true`, usa a alavancagem maxima permitida por ativo
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)

@@ -33,6 +33,7 @@ class RiskTests(unittest.TestCase):
             slow_ma=26,
             max_positions=max_positions,
             balance_risk_pct=1.0,
+            fixed_entry_margin_usdt=0.0,
             leverage=125,
             use_max_leverage_per_symbol=True,
             target_roi_pct=100.0,

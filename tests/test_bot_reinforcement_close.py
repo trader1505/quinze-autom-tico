@@ -49,6 +49,7 @@ def _make_config() -> BotConfig:
         slow_ma=26,
         max_positions=1,
         balance_risk_pct=1.0,
+        fixed_entry_margin_usdt=0.0,
         leverage=20,
         use_max_leverage_per_symbol=True,
         target_roi_pct=1000.0,
