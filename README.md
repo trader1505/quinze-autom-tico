@@ -31,9 +31,11 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
    - exige cruzamento EMA contra a direcao da entrada (alerta)
    - depois exige novo cruzamento EMA voltando para a direcao original
    - somente apos essa sequencia de cruzamentos executa reforco de **3x** sobre a entrada inicial
+   - se nao houver margem livre suficiente para o 3x, transfere apenas o necessario de spot para futuros
    - apos reforco, quando ROI voltar para >= 0, fecha 100% para liberar margem
 
 > O bot nao faz rebalance continuo por tempo/ciclo. Movimentacao de capital ocorre apenas em TP e topup de emergencia.
+> Funding para 3x possui cooldown por candle para evitar loops de transferencia.
 
 ## Estrutura
 

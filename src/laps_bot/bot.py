@@ -27,12 +27,14 @@ class PositionRuntimeState:
     topups_used: int = 0
     reinforcement_alert: bool = False
     reinforcement_done: bool = False
+    reinforcement_funding_bucket: int | None = None
 
     def reset(self) -> None:
         self.initial_entry_usdt = 0.0
         self.topups_used = 0
         self.reinforcement_alert = False
         self.reinforcement_done = False
+        self.reinforcement_funding_bucket = None
 
 
 class LapsBot:
@@ -55,6 +57,14 @@ class LapsBot:
             state.reinforcement_alert = bool(item.get("reinforcement_alert", False))
             state.reinforcement_done = bool(item.get("reinforcement_done", False))
             state.initial_entry_usdt = float(item.get("initial_entry_usdt", 0.0) or 0.0)
+            funding_bucket_raw = item.get("reinforcement_funding_bucket")
+            if funding_bucket_raw is None:
+                state.reinforcement_funding_bucket = None
+            else:
+                try:
+                    state.reinforcement_funding_bucket = int(funding_bucket_raw)
+                except (TypeError, ValueError):
+                    state.reinforcement_funding_bucket = None
 
     def _emit(self, event_type: str, message: str, payload: dict[str, Any] | None = None, severity: str = "info") -> None:
         self.telemetry.emit(event_type, message, payload=payload, severity=severity)
@@ -154,6 +164,9 @@ class LapsBot:
                 "reinforcement_alert": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_alert,
                 "reinforcement_done": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_done,
                 "initial_entry_usdt": self.position_states.get(p.symbol, PositionRuntimeState()).initial_entry_usdt,
+                "reinforcement_funding_bucket": self.position_states.get(
+                    p.symbol, PositionRuntimeState()
+                ).reinforcement_funding_bucket,
             }
             for p in positions
         ]
@@ -203,6 +216,95 @@ class LapsBot:
 
     def _base_side(self, side: str) -> Trend:
         return Trend.LONG if side == "long" else Trend.SHORT
+
+    @staticmethod
+    def _timeframe_to_seconds(timeframe: str) -> int:
+        unit = timeframe[-1]
+        try:
+            value = int(timeframe[:-1])
+        except ValueError:
+            return 60
+        if unit == "m":
+            return value * 60
+        if unit == "h":
+            return value * 3600
+        if unit == "d":
+            return value * 86400
+        return max(value, 1)
+
+    def _ensure_reinforcement_funding(self, symbol: str, required_margin: float, state: PositionRuntimeState) -> bool:
+        free_futures = self.exchange.free_futures_usdt()
+        if free_futures >= required_margin:
+            return True
+
+        timeframe_seconds = self._timeframe_to_seconds(self.config.timeframe)
+        bucket = int(time.time()) // timeframe_seconds
+        if state.reinforcement_funding_bucket == bucket:
+            self._emit(
+                "reinforcement_3x_skipped",
+                "3x funding transfer cooldown active for current candle.",
+                payload={
+                    "symbol": symbol,
+                    "required_margin_usdt": required_margin,
+                    "free_futures_usdt": free_futures,
+                    "timeframe": self.config.timeframe,
+                },
+                severity="warning",
+            )
+            return False
+
+        missing_margin = required_margin - free_futures
+        buffer = max(required_margin * 0.005, 0.0001)
+        transfer_needed = missing_margin + buffer
+        spot_free = self.exchange.free_spot_usdt()
+        if spot_free < transfer_needed:
+            self._emit(
+                "reinforcement_3x_skipped",
+                "3x reinforcement skipped: insufficient spot free balance for funding transfer.",
+                payload={
+                    "symbol": symbol,
+                    "required_margin_usdt": required_margin,
+                    "missing_margin_usdt": missing_margin,
+                    "requested_transfer_usdt": transfer_needed,
+                    "spot_free_usdt": spot_free,
+                },
+                severity="warning",
+            )
+            state.reinforcement_funding_bucket = bucket
+            return False
+
+        try:
+            self.exchange.transfer_usdt(transfer_needed, "spot", "future")
+        except Exception as exc:
+            self._emit(
+                "reinforcement_3x_skipped",
+                "3x reinforcement skipped: transfer spot->future failed.",
+                payload={
+                    "symbol": symbol,
+                    "required_margin_usdt": required_margin,
+                    "requested_transfer_usdt": transfer_needed,
+                    "error": str(exc),
+                },
+                severity="error",
+            )
+            state.reinforcement_funding_bucket = bucket
+            return False
+
+        state.reinforcement_funding_bucket = bucket
+        free_after = self.exchange.free_futures_usdt()
+        self._emit(
+            "reinforcement_funding_transfer",
+            "Transferred spot to futures to fund 3x reinforcement.",
+            payload={
+                "symbol": symbol,
+                "requested_transfer_usdt": transfer_needed,
+                "required_margin_usdt": required_margin,
+                "free_futures_before_usdt": free_futures,
+                "free_futures_after_usdt": free_after,
+            },
+            severity="warning",
+        )
+        return free_after >= required_margin
 
     def _open_new_position(self, blocked_symbols: set[str]) -> bool:
         available_symbols = [symbol for symbol in self.config.symbols if symbol not in blocked_symbols]
@@ -293,18 +395,7 @@ class LapsBot:
         if state.initial_entry_usdt <= 0:
             return
         reinforce_margin = state.initial_entry_usdt * self.config.reinforcement_multiplier
-        free_futures = self.exchange.free_futures_usdt()
-        if free_futures < reinforce_margin:
-            self._emit(
-                "reinforcement_3x_skipped",
-                "3x reinforcement skipped due insufficient free futures balance.",
-                payload={
-                    "symbol": symbol,
-                    "required_margin_usdt": reinforce_margin,
-                    "free_futures_usdt": free_futures,
-                },
-                severity="warning",
-            )
+        if not self._ensure_reinforcement_funding(symbol, reinforce_margin, state):
             return
         try:
             symbol, amount, _, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
