@@ -862,6 +862,14 @@ class LapsBot:
         refreshed_positions = self.exchange.fetch_open_positions(symbol_universe)
         refreshed_symbols = {position.symbol for position in refreshed_positions}
         self._drop_closed_states(refreshed_symbols)
+
+        if len(refreshed_symbols) < self.config.max_positions:
+            opened_after_closes = self._fill_open_slots(refreshed_symbols, symbol_universe)
+            if opened_after_closes:
+                refreshed_positions = self.exchange.fetch_open_positions(symbol_universe)
+                refreshed_symbols = {position.symbol for position in refreshed_positions}
+                self._drop_closed_states(refreshed_symbols)
+
         capital = self._capital_snapshot()
         if refreshed_positions:
             self._sync_state("positions_active", positions=refreshed_positions, trends=trends, capital=capital)
