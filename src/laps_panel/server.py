@@ -92,6 +92,14 @@ def create_panel_app(telemetry_dir: str) -> Flask:
     store = TelemetryStore(telemetry_dir)
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
 
+    @app.after_request
+    def add_no_cache_headers(response):  # type: ignore[no-untyped-def]
+        if request.path == "/" or request.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
     @app.get("/")
     def index() -> str:
         return send_from_directory(app.static_folder, "index.html")
@@ -111,7 +119,7 @@ def create_panel_app(telemetry_dir: str) -> Flask:
             limit = int(raw_limit)
         except ValueError:
             limit = 200
-        limit = max(1, min(limit, 2000))
+        limit = max(1, min(limit, 200))
         return jsonify({"events": store.read_recent_events(limit=limit)}), 200
 
     @app.get("/api/summary")

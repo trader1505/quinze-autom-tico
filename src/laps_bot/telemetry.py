@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import threading
-from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -69,11 +68,11 @@ class TelemetryStore:
         with self._lock:
             if not self.events_path.exists():
                 return []
-            with self.events_path.open("r", encoding="utf-8") as f:
-                if limit is None:
+            if limit is None:
+                with self.events_path.open("r", encoding="utf-8") as f:
                     lines = list(f)
-                else:
-                    lines = deque(f, maxlen=limit)
+            else:
+                lines = self._read_last_event_lines(limit)
         events: list[dict[str, Any]] = []
         for line in lines:
             raw = line.strip()
@@ -88,3 +87,23 @@ class TelemetryStore:
 
     def read_recent_events(self, limit: int = 200) -> list[dict[str, Any]]:
         return self.read_events(limit=limit)
+
+    def _read_last_event_lines(self, limit: int) -> list[str]:
+        chunk_size = 8192
+        lines: list[str] = []
+        with self.events_path.open("rb") as f:
+            f.seek(0, 2)
+            file_size = f.tell()
+            if file_size <= 0:
+                return lines
+            data = b""
+            position = file_size
+            newline_count = 0
+            while position > 0 and newline_count <= limit:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                f.seek(position)
+                data = f.read(read_size) + data
+                newline_count = data.count(b"\n")
+        raw_lines = data.splitlines()[-limit:]
+        return [line.decode("utf-8", errors="ignore") for line in raw_lines]

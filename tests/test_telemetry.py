@@ -34,6 +34,14 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(state["symbol"], "BTC/USDT:USDT")
         self.assertEqual(state["roi_pct"], 5.5)
 
+    def test_read_recent_events_returns_tail_without_full_scan(self) -> None:
+        for idx in range(30):
+            self.store.emit("position_update", f"tick {idx}", {"idx": idx})
+        events = self.store.read_recent_events(limit=5)
+        self.assertEqual(len(events), 5)
+        self.assertEqual(events[0]["payload"]["idx"], 25)
+        self.assertEqual(events[-1]["payload"]["idx"], 29)
+
 
 if __name__ == "__main__":
     unittest.main()
