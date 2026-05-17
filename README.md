@@ -28,6 +28,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 4. Quando ROI da posicao atingir **+100%**, fecha 100% da posicao.
 5. Apos fechar no TP, executa rebalanceamento para manter **80/20 (spot/futuros)**.
 6. Se o **margin ratio da conta futures** atingir o gatilho (default `60%`), transfere **20% do spot livre** para futuros.
+   - enquanto continuar acima do gatilho, o bot pode repetir o topup com cooldown de seguranca.
    - quando o margin ratio recuar para o nivel de recuperacao (default `31%`), executa rebalance para voltar ao alvo 80/20.
 7. Regra 3x:
    - exige cruzamento EMA contra a direcao da entrada (alerta)

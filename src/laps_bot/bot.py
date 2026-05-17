@@ -41,6 +41,8 @@ class PositionRuntimeState:
 
 
 class LapsBot:
+    ACCOUNT_MARGIN_TOPUP_COOLDOWN_SECONDS = 60
+
     def __init__(self, config: BotConfig) -> None:
         validate_config(config)
         self.config = config
@@ -50,6 +52,7 @@ class LapsBot:
         self._symbol_universe_cache: list[str] = list(config.symbols)
         self._symbol_universe_cached_at: float = 0.0
         self._account_margin_topup_active = False
+        self._account_margin_last_topup_ts = 0.0
         self._restore_runtime_state()
 
     def _restore_runtime_state(self) -> None:
@@ -266,6 +269,8 @@ class LapsBot:
     def _manage_account_margin_ratio(self, account_margin_ratio_pct: float | None) -> None:
         if not hasattr(self, "_account_margin_topup_active"):
             self._account_margin_topup_active = False
+        if not hasattr(self, "_account_margin_last_topup_ts"):
+            self._account_margin_last_topup_ts = 0.0
         if account_margin_ratio_pct is None:
             return
 
@@ -273,7 +278,22 @@ class LapsBot:
         recovery = self.config.margin_ratio_rebalance_pct
 
         if account_margin_ratio_pct >= trigger:
-            if self._account_margin_topup_active:
+            self._account_margin_topup_active = True
+            now_ts = time.time()
+            cooldown_remaining = self.ACCOUNT_MARGIN_TOPUP_COOLDOWN_SECONDS - (
+                now_ts - self._account_margin_last_topup_ts
+            )
+            if cooldown_remaining > 0:
+                self._emit(
+                    "margin_topped_up_skipped",
+                    "Topup skipped because account margin guard cooldown is still active.",
+                    payload={
+                        "account_margin_ratio_pct": account_margin_ratio_pct,
+                        "margin_ratio_trigger_pct": trigger,
+                        "cooldown_remaining_seconds": round(cooldown_remaining, 2),
+                    },
+                    severity="warning",
+                )
                 return
             spot_free = self.exchange.free_spot_usdt()
             topup_amount = margin_topup_usdt(spot_free, self.config.margin_topup_pct)
@@ -304,7 +324,7 @@ class LapsBot:
                     severity="error",
                 )
                 return
-            self._account_margin_topup_active = True
+            self._account_margin_last_topup_ts = now_ts
             self._emit(
                 "margin_topped_up",
                 "Account margin ratio reached trigger; transferred spot to futures.",
@@ -334,6 +354,7 @@ class LapsBot:
                 )
                 return
             self._account_margin_topup_active = False
+            self._account_margin_last_topup_ts = 0.0
             self._emit(
                 "cash_rebalance",
                 "Cash rebalance executed after account margin ratio recovered.",

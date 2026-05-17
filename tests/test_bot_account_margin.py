@@ -70,6 +70,7 @@ class AccountMarginGuardTests(unittest.TestCase):
         exchange = _ExchangeMarginStub(spot_free)
         bot.exchange = exchange
         bot._account_margin_topup_active = False
+        bot._account_margin_last_topup_ts = 0.0
         emitted: list[str] = []
         bot._emit = lambda event_type, message, payload=None, severity="info": emitted.append(event_type)  # type: ignore[method-assign]
         return bot, exchange, emitted
@@ -91,6 +92,22 @@ class AccountMarginGuardTests(unittest.TestCase):
         self.assertFalse(bot._account_margin_topup_active)
         self.assertEqual(exchange.transfers, [])
         self.assertIn("cash_rebalance", emitted)
+
+    @patch("laps_bot.bot.rebalance_80_20", return_value={"changed": True})
+    def test_topup_repeats_after_cooldown_if_margin_stays_high(self, _rebalance_mock: object) -> None:
+        bot, exchange, emitted = self._make_bot(10.0)
+        bot._manage_account_margin_ratio(65.0)
+        self.assertEqual(len(exchange.transfers), 1)
+
+        # still above trigger, but before cooldown no new transfer should occur
+        bot._manage_account_margin_ratio(65.0)
+        self.assertEqual(len(exchange.transfers), 1)
+        self.assertIn("margin_topped_up_skipped", emitted)
+
+        # after cooldown, transfer should happen again if still above trigger
+        bot._account_margin_last_topup_ts -= (bot.ACCOUNT_MARGIN_TOPUP_COOLDOWN_SECONDS + 1)
+        bot._manage_account_margin_ratio(65.0)
+        self.assertEqual(len(exchange.transfers), 2)
 
 
 if __name__ == "__main__":
