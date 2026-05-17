@@ -193,6 +193,8 @@ class LapsBot:
                 "slow_ema_period": self.config.slow_ma,
                 "trend": signal.trend.value,
                 "crossover": signal.crossover.value if signal.crossover else None,
+                "latest_crossover": signal.latest_crossover.value if signal.latest_crossover else None,
+                "previous_crossover": signal.previous_crossover.value if signal.previous_crossover else None,
                 "fast_ema": signal.fast_ema,
                 "slow_ema": signal.slow_ema,
             },
@@ -453,6 +455,10 @@ class LapsBot:
         market_trend = trend_signal.trend
         crossover = trend_signal.crossover
         base_trend = self._base_side(position.side)
+        opposite_trend = Trend.SHORT if base_trend == Trend.LONG else Trend.LONG
+        sequence_ready = (
+            trend_signal.latest_crossover == base_trend and trend_signal.previous_crossover == opposite_trend
+        )
 
         # If bot restarts while trend is already opposite, recover alert state.
         if (
@@ -470,6 +476,23 @@ class LapsBot:
                     "position_side": position.side,
                     "trend_now": market_trend.value,
                     "crossover": crossover.value if crossover else None,
+                    "entry_side": base_trend.value,
+                },
+                severity="warning",
+            )
+
+        # If crossovers already formed opposite -> return while bot was offline,
+        # recover and execute 3x once to match strategy intent.
+        if not state.reinforcement_done and sequence_ready and not state.reinforcement_alert:
+            state.reinforcement_alert = True
+            self._emit(
+                "reinforcement_alert",
+                "Recovered opposite->return EMA crossover sequence from history.",
+                payload={
+                    "symbol": position.symbol,
+                    "position_side": position.side,
+                    "latest_crossover": trend_signal.latest_crossover.value if trend_signal.latest_crossover else None,
+                    "previous_crossover": trend_signal.previous_crossover.value if trend_signal.previous_crossover else None,
                     "entry_side": base_trend.value,
                 },
                 severity="warning",
@@ -497,14 +520,16 @@ class LapsBot:
             state.reinforcement_alert = True
             return market_trend
 
-        if state.reinforcement_alert and crossover == base_trend and not state.reinforcement_done:
+        if state.reinforcement_alert and not state.reinforcement_done and (crossover == base_trend or sequence_ready):
             self._emit(
                 "reinforcement_crossover_confirmed",
                 "Entry-direction EMA crossover confirmed; executing 3x reinforcement.",
                 payload={
                     "symbol": position.symbol,
                     "position_side": position.side,
-                    "crossover": crossover.value,
+                    "crossover": crossover.value if crossover else None,
+                    "latest_crossover": trend_signal.latest_crossover.value if trend_signal.latest_crossover else None,
+                    "previous_crossover": trend_signal.previous_crossover.value if trend_signal.previous_crossover else None,
                     "entry_side": base_trend.value,
                 },
                 severity="warning",

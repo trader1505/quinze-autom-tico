@@ -43,3 +43,21 @@ def crossover_from_closes(closes: list[float], fast_period: int, slow_period: in
     if prev_fast >= prev_slow and curr_fast < curr_slow:
         return Trend.SHORT
     return None
+
+
+def crossover_history_from_closes(closes: list[float], fast_period: int, slow_period: int) -> list[Trend]:
+    if len(closes) < max(fast_period, slow_period) + 1:
+        return []
+    fast_values = ema_series(closes, fast_period)
+    slow_values = ema_series(closes, slow_period)
+    history: list[Trend] = []
+    for index in range(1, len(closes)):
+        prev_fast = fast_values[index - 1]
+        prev_slow = slow_values[index - 1]
+        curr_fast = fast_values[index]
+        curr_slow = slow_values[index]
+        if prev_fast <= prev_slow and curr_fast > curr_slow:
+            history.append(Trend.LONG)
+        elif prev_fast >= prev_slow and curr_fast < curr_slow:
+            history.append(Trend.SHORT)
+    return history
