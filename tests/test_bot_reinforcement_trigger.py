@@ -50,6 +50,7 @@ def _make_config() -> BotConfig:
         target_roi_pct=1000.0,
         add_margin_trigger_pct=-60.0,
         margin_ratio_trigger_pct=60.0,
+        margin_ratio_rebalance_pct=31.0,
         margin_match_tolerance_pct=0.25,
         taker_fee_rate=0.0005,
         reinforcement_multiplier=3.0,

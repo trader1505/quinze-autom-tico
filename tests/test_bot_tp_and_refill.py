@@ -33,6 +33,7 @@ def _make_config(max_positions: int = 1) -> BotConfig:
         target_roi_pct=100.0,
         add_margin_trigger_pct=-60.0,
         margin_ratio_trigger_pct=60.0,
+        margin_ratio_rebalance_pct=31.0,
         margin_match_tolerance_pct=30.0,
         taker_fee_rate=0.0005,
         reinforcement_multiplier=3.0,
@@ -68,6 +69,9 @@ class _ExchangeTpStub:
 
     def free_futures_usdt(self) -> float:
         return 5.0
+
+    def account_margin_ratio_pct(self) -> float:
+        return 20.0
 
 
 class _ExchangeCycleStub(_ExchangeTpStub):

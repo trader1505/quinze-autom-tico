@@ -11,7 +11,6 @@ from laps_bot.models import PositionState, Trend
 from laps_bot.rebalance import rebalance_80_20
 from laps_bot.risk import (
     margin_topup_usdt,
-    should_add_margin,
     target_entry_usdt,
     validate_config,
 )
@@ -50,10 +49,12 @@ class LapsBot:
         self.telemetry = TelemetryStore(config.telemetry_dir)
         self._symbol_universe_cache: list[str] = list(config.symbols)
         self._symbol_universe_cached_at: float = 0.0
+        self._account_margin_topup_active = False
         self._restore_runtime_state()
 
     def _restore_runtime_state(self) -> None:
         snapshot = self.telemetry.read_state()
+        self._account_margin_topup_active = bool(snapshot.get("account_margin_topup_active", False))
         for item in snapshot.get("positions", []) or []:
             symbol = item.get("symbol")
             if not symbol:
@@ -102,6 +103,7 @@ class LapsBot:
         futures_total = self.exchange.total_futures_usdt()
         spot_free = self.exchange.free_spot_usdt()
         futures_free = self.exchange.free_futures_usdt()
+        account_margin_ratio_pct = self.exchange.account_margin_ratio_pct()
         total = spot_total + futures_total
         if total <= 0:
             spot_pct = 0.0
@@ -119,6 +121,7 @@ class LapsBot:
             "futures_pct_actual": futures_pct,
             "spot_target_pct": self.config.spot_target_pct,
             "futures_target_pct": self.config.futures_target_pct,
+            "account_margin_ratio_pct": account_margin_ratio_pct if account_margin_ratio_pct is not None else 0.0,
         }
 
     def _estimate_taker_fee_usdt(self, notional_usdt: float) -> float:
@@ -187,6 +190,7 @@ class LapsBot:
             "futures_pct_actual": 0.0,
             "spot_target_pct": self.config.spot_target_pct,
             "futures_target_pct": self.config.futures_target_pct,
+            "account_margin_ratio_pct": 0.0,
         }
         if not positions:
             self.telemetry.update_state(
@@ -202,6 +206,7 @@ class LapsBot:
                 reinforcement_alert=False,
                 reinforcement_done=False,
                 initial_entry_usdt=0.0,
+                account_margin_topup_active=self._account_margin_topup_active,
                 open_positions_count=0,
                 positions=[],
                 **capital,
@@ -252,10 +257,91 @@ class LapsBot:
             reinforcement_alert=lead_state.reinforcement_alert,
             reinforcement_done=lead_state.reinforcement_done,
             initial_entry_usdt=lead_state.initial_entry_usdt,
+            account_margin_topup_active=self._account_margin_topup_active,
             open_positions_count=len(positions),
             positions=position_payload,
             **capital,
         )
+
+    def _manage_account_margin_ratio(self, account_margin_ratio_pct: float | None) -> None:
+        if not hasattr(self, "_account_margin_topup_active"):
+            self._account_margin_topup_active = False
+        if account_margin_ratio_pct is None:
+            return
+
+        trigger = self.config.margin_ratio_trigger_pct
+        recovery = self.config.margin_ratio_rebalance_pct
+
+        if account_margin_ratio_pct >= trigger:
+            if self._account_margin_topup_active:
+                return
+            spot_free = self.exchange.free_spot_usdt()
+            topup_amount = margin_topup_usdt(spot_free, self.config.margin_topup_pct)
+            if topup_amount <= 0:
+                self._emit(
+                    "margin_topped_up_skipped",
+                    "Topup skipped because spot free balance is zero.",
+                    payload={
+                        "account_margin_ratio_pct": account_margin_ratio_pct,
+                        "margin_ratio_trigger_pct": trigger,
+                        "spot_free_usdt": spot_free,
+                    },
+                    severity="warning",
+                )
+                return
+            try:
+                self.exchange.transfer_usdt(topup_amount, "spot", "future")
+            except Exception as exc:
+                self._emit(
+                    "margin_topup_failed",
+                    "Margin topup transfer failed.",
+                    payload={
+                        "account_margin_ratio_pct": account_margin_ratio_pct,
+                        "margin_ratio_trigger_pct": trigger,
+                        "topup_amount_usdt": topup_amount,
+                        "error": str(exc),
+                    },
+                    severity="error",
+                )
+                return
+            self._account_margin_topup_active = True
+            self._emit(
+                "margin_topped_up",
+                "Account margin ratio reached trigger; transferred spot to futures.",
+                payload={
+                    "account_margin_ratio_pct": account_margin_ratio_pct,
+                    "margin_ratio_trigger_pct": trigger,
+                    "topup_amount_usdt": topup_amount,
+                    "margin_topup_pct": self.config.margin_topup_pct,
+                },
+                severity="warning",
+            )
+            return
+
+        if self._account_margin_topup_active and account_margin_ratio_pct <= recovery:
+            try:
+                rebalance_80_20(self.exchange, self.config)
+            except Exception as exc:
+                self._emit(
+                    "cash_rebalance_failed",
+                    "Cash rebalance failed after account margin ratio recovery.",
+                    payload={
+                        "account_margin_ratio_pct": account_margin_ratio_pct,
+                        "margin_ratio_rebalance_pct": recovery,
+                        "error": str(exc),
+                    },
+                    severity="error",
+                )
+                return
+            self._account_margin_topup_active = False
+            self._emit(
+                "cash_rebalance",
+                "Cash rebalance executed after account margin ratio recovered.",
+                payload={
+                    "account_margin_ratio_pct": account_margin_ratio_pct,
+                    "margin_ratio_rebalance_pct": recovery,
+                },
+            )
 
     def _signal_for_symbol(self, symbol: str, emit_event: bool = True) -> TrendSignal:
         candles_needed = self.config.slow_ma + 50
@@ -619,72 +705,6 @@ class LapsBot:
             LOG.info("Target ROI reached. Position closed and 80/20 rebalanced.")
             return None
 
-        if should_add_margin(
-            roi,
-            self.config.add_margin_trigger_pct,
-            position.margin_ratio_pct,
-            self.config.margin_ratio_trigger_pct,
-            state.topups_used,
-            self.config.max_topups,
-        ):
-            topup_amount = margin_topup_usdt(self.exchange.free_spot_usdt(), self.config.margin_topup_pct)
-            if topup_amount > 0:
-                try:
-                    self.exchange.transfer_usdt(topup_amount, "spot", "future")
-                    state.topups_used += 1
-                    LOG.warning(
-                        "Margin trigger reached on %s (ROI %.4f%%, margin ratio %.4f%%). Added %.8f USDT. Topups: %s/%s",
-                        position.symbol,
-                        roi,
-                        position.margin_ratio_pct if position.margin_ratio_pct is not None else -1.0,
-                        topup_amount,
-                        state.topups_used,
-                        self.config.max_topups,
-                    )
-                    self._emit(
-                        "margin_topped_up",
-                        "Margin topup triggered by negative ROI threshold.",
-                        payload={
-                            "symbol": position.symbol,
-                            "roi_pct": roi,
-                            "margin_ratio_pct": position.margin_ratio_pct,
-                            "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
-                            "topup_amount_usdt": topup_amount,
-                            "topups_used": state.topups_used,
-                            "max_topups": self.config.max_topups,
-                        },
-                        severity="warning",
-                    )
-                except Exception as exc:
-                    LOG.warning("Margin topup transfer failed on %s: %s", position.symbol, exc)
-                    self._emit(
-                        "margin_topup_failed",
-                        "Margin topup transfer failed.",
-                        payload={
-                            "symbol": position.symbol,
-                            "roi_pct": roi,
-                            "margin_ratio_pct": position.margin_ratio_pct,
-                            "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
-                            "topup_amount_usdt": topup_amount,
-                            "error": str(exc),
-                        },
-                        severity="error",
-                    )
-        elif roi <= self.config.add_margin_trigger_pct and (
-            position.margin_ratio_pct is None or position.margin_ratio_pct < self.config.margin_ratio_trigger_pct
-        ):
-            self._emit(
-                "margin_topped_up_skipped",
-                "Topup skipped because margin ratio trigger was not reached.",
-                payload={
-                    "symbol": position.symbol,
-                    "roi_pct": roi,
-                    "roi_trigger_pct": self.config.add_margin_trigger_pct,
-                    "margin_ratio_pct": position.margin_ratio_pct,
-                    "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
-                },
-            )
-
         trend_signal = self._signal_for_symbol(position.symbol)
         market_trend = trend_signal.trend
         crossover = trend_signal.crossover
@@ -843,6 +863,8 @@ class LapsBot:
 
     def _manage_open_positions(self) -> None:
         symbol_universe = self._symbol_universe()
+        account_margin_ratio_pct = self.exchange.account_margin_ratio_pct()
+        self._manage_account_margin_ratio(account_margin_ratio_pct)
         positions = self.exchange.fetch_open_positions(symbol_universe)
         open_symbols = {position.symbol for position in positions}
         self._drop_closed_states(open_symbols)
@@ -915,6 +937,7 @@ class LapsBot:
                 "leverage": self.config.leverage,
                 "use_max_leverage_per_symbol": self.config.use_max_leverage_per_symbol,
                 "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
+                "margin_ratio_rebalance_pct": self.config.margin_ratio_rebalance_pct,
                 "max_positions": self.config.max_positions,
             },
         )

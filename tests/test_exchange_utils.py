@@ -49,6 +49,20 @@ class ExchangeUtilsTests(unittest.TestCase):
         symbols = gateway.discover_tradable_symbols(limit=10, preferred_symbols=())
         self.assertEqual(symbols, ["BTC/USDT:USDT"])
 
+    def test_account_margin_ratio_prefers_total_maint_and_balance(self) -> None:
+        gateway = ExchangeGateway.__new__(ExchangeGateway)
+        gateway.fetch_futures_balance = lambda: {  # type: ignore[method-assign]
+            "info": {"totalMaintMargin": "57", "totalMarginBalance": "100"}
+        }
+        self.assertAlmostEqual(gateway.account_margin_ratio_pct() or 0.0, 57.0)
+
+    def test_account_margin_ratio_falls_back_to_assets(self) -> None:
+        gateway = ExchangeGateway.__new__(ExchangeGateway)
+        gateway.fetch_futures_balance = lambda: {  # type: ignore[method-assign]
+            "info": {"assets": [{"maintMargin": "3", "marginBalance": "10"}, {"maintMargin": "1", "marginBalance": "10"}]}
+        }
+        self.assertAlmostEqual(gateway.account_margin_ratio_pct() or 0.0, 20.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -123,6 +123,38 @@ class ExchangeGateway:
         balance = self.fetch_spot_balance()
         return float(balance["free"].get("USDT", 0.0))
 
+    def account_margin_ratio_pct(self) -> float | None:
+        balance = self.fetch_futures_balance()
+        info = balance.get("info") or {}
+
+        def _to_float(value: object) -> float | None:
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        total_maint_margin = _to_float(info.get("totalMaintMargin"))
+        total_margin_balance = _to_float(info.get("totalMarginBalance"))
+        if total_maint_margin is not None and total_margin_balance and total_margin_balance > 0:
+            return (total_maint_margin / total_margin_balance) * 100.0
+
+        assets = info.get("assets")
+        if isinstance(assets, list):
+            maint_sum = 0.0
+            balance_sum = 0.0
+            for asset in assets:
+                if not isinstance(asset, dict):
+                    continue
+                maint = _to_float(asset.get("maintMargin")) or 0.0
+                margin_balance = _to_float(asset.get("marginBalance")) or 0.0
+                maint_sum += maint
+                balance_sum += margin_balance
+            if balance_sum > 0:
+                return (maint_sum / balance_sum) * 100.0
+        return None
+
     def fetch_open_positions(self, symbols: Iterable[str]) -> list[PositionState]:
         positions = self.exchange.fetch_positions(list(symbols))
         open_positions: list[PositionState] = []
