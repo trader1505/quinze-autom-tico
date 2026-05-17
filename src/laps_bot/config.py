@@ -35,6 +35,7 @@ class BotConfig:
     add_margin_trigger_pct: float
     margin_ratio_trigger_pct: float
     margin_match_tolerance_pct: float
+    taker_fee_rate: float
     reinforcement_multiplier: float
     spot_target_pct: float
     futures_target_pct: float
@@ -70,6 +71,7 @@ def load_config() -> BotConfig:
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
         margin_ratio_trigger_pct=_read_float("LAPS_MARGIN_RATIO_TRIGGER_PCT", 60.0),
         margin_match_tolerance_pct=_read_float("LAPS_MARGIN_MATCH_TOLERANCE_PCT", 0.25),
+        taker_fee_rate=_read_float("LAPS_TAKER_FEE_RATE", 0.0005),
         reinforcement_multiplier=_read_float("LAPS_REINFORCEMENT_MULTIPLIER", 3.0),
         spot_target_pct=_read_float("LAPS_SPOT_TARGET_PCT", 80.0),
         futures_target_pct=_read_float("LAPS_FUTURES_TARGET_PCT", 20.0),
@@ -93,6 +95,8 @@ def load_config() -> BotConfig:
         raise ValueError("LAPS_MARGIN_RATIO_TRIGGER_PCT must be positive.")
     if cfg.margin_match_tolerance_pct < 0:
         raise ValueError("LAPS_MARGIN_MATCH_TOLERANCE_PCT must be non-negative.")
+    if cfg.taker_fee_rate < 0:
+        raise ValueError("LAPS_TAKER_FEE_RATE must be non-negative.")
     if cfg.panel_port <= 0:
         raise ValueError("LAPS_PANEL_PORT must be positive.")
     return cfg

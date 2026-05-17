@@ -113,6 +113,7 @@ Depois acesse:
 - `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho minimo de margem (% da conta/posicao) para permitir topup (default `60`)
 - `LAPS_MARGIN_MATCH_TOLERANCE_PCT`: tolerancia de ajuste de margem para respeitar step/notional da exchange (default `0.25`)
 - `LAPS_REINFORCEMENT_MULTIPLIER`: multiplicador do reforco (default `3`)
+- `LAPS_TAKER_FEE_RATE`: taxa taker estimada usada no break-even real do fechamento 3x (default `0.0005`)
 - `LAPS_SPOT_TARGET_PCT` / `LAPS_FUTURES_TARGET_PCT`: alvo 80/20
 - `LAPS_MARGIN_TOPUP_PCT`: percentual transferido no topup (default `20`)
 - `LAPS_MAX_TOPUPS`: quantidade de "vidas" (default `4`)

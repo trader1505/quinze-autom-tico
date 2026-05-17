@@ -24,17 +24,21 @@ LOG = logging.getLogger(__name__)
 @dataclass
 class PositionRuntimeState:
     initial_entry_usdt: float = 0.0
+    estimated_open_fees_usdt: float = 0.0
     topups_used: int = 0
     reinforcement_alert: bool = False
     reinforcement_done: bool = False
     reinforcement_funding_bucket: int | None = None
+    reinforcement_exit_bucket: int | None = None
 
     def reset(self) -> None:
         self.initial_entry_usdt = 0.0
+        self.estimated_open_fees_usdt = 0.0
         self.topups_used = 0
         self.reinforcement_alert = False
         self.reinforcement_done = False
         self.reinforcement_funding_bucket = None
+        self.reinforcement_exit_bucket = None
 
 
 class LapsBot:
@@ -57,6 +61,7 @@ class LapsBot:
             state.reinforcement_alert = bool(item.get("reinforcement_alert", False))
             state.reinforcement_done = bool(item.get("reinforcement_done", False))
             state.initial_entry_usdt = float(item.get("initial_entry_usdt", 0.0) or 0.0)
+            state.estimated_open_fees_usdt = float(item.get("estimated_open_fees_usdt", 0.0) or 0.0)
             funding_bucket_raw = item.get("reinforcement_funding_bucket")
             if funding_bucket_raw is None:
                 state.reinforcement_funding_bucket = None
@@ -65,6 +70,14 @@ class LapsBot:
                     state.reinforcement_funding_bucket = int(funding_bucket_raw)
                 except (TypeError, ValueError):
                     state.reinforcement_funding_bucket = None
+            exit_bucket_raw = item.get("reinforcement_exit_bucket")
+            if exit_bucket_raw is None:
+                state.reinforcement_exit_bucket = None
+            else:
+                try:
+                    state.reinforcement_exit_bucket = int(exit_bucket_raw)
+                except (TypeError, ValueError):
+                    state.reinforcement_exit_bucket = None
 
     def _emit(self, event_type: str, message: str, payload: dict[str, Any] | None = None, severity: str = "info") -> None:
         self.telemetry.emit(event_type, message, payload=payload, severity=severity)
@@ -105,6 +118,11 @@ class LapsBot:
             "spot_target_pct": self.config.spot_target_pct,
             "futures_target_pct": self.config.futures_target_pct,
         }
+
+    def _estimate_taker_fee_usdt(self, notional_usdt: float) -> float:
+        if notional_usdt <= 0:
+            return 0.0
+        return notional_usdt * self.config.taker_fee_rate
 
     def _sync_state(
         self,
@@ -164,9 +182,15 @@ class LapsBot:
                 "reinforcement_alert": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_alert,
                 "reinforcement_done": self.position_states.get(p.symbol, PositionRuntimeState()).reinforcement_done,
                 "initial_entry_usdt": self.position_states.get(p.symbol, PositionRuntimeState()).initial_entry_usdt,
+                "estimated_open_fees_usdt": self.position_states.get(
+                    p.symbol, PositionRuntimeState()
+                ).estimated_open_fees_usdt,
                 "reinforcement_funding_bucket": self.position_states.get(
                     p.symbol, PositionRuntimeState()
                 ).reinforcement_funding_bucket,
+                "reinforcement_exit_bucket": self.position_states.get(
+                    p.symbol, PositionRuntimeState()
+                ).reinforcement_exit_bucket,
             }
             for p in positions
         ]
@@ -362,6 +386,8 @@ class LapsBot:
         self.exchange.create_market_position(symbol, trend, amount, reduce_only=False)
         state = self._state_for_symbol(symbol)
         state.initial_entry_usdt = used_margin
+        open_notional = amount * price
+        state.estimated_open_fees_usdt = self._estimate_taker_fee_usdt(open_notional)
         state.topups_used = 0
         state.reinforcement_alert = False
         state.reinforcement_done = False
@@ -386,6 +412,7 @@ class LapsBot:
                 "price": price,
                 "target_margin_usdt": target_margin_usdt,
                 "used_margin_usdt": used_margin,
+                "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
                 "leverage": self.config.leverage,
             },
         )
@@ -398,7 +425,7 @@ class LapsBot:
         if not self._ensure_reinforcement_funding(symbol, reinforce_margin, state):
             return
         try:
-            symbol, amount, _, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
+            symbol, amount, price, used_margin = self.exchange.choose_symbol_and_amount_for_exact_margin(
                 [symbol],
                 reinforce_margin,
                 self.config.leverage,
@@ -410,6 +437,8 @@ class LapsBot:
         self.exchange.create_market_position(symbol, base_trend, amount, reduce_only=False)
         state.reinforcement_alert = False
         state.reinforcement_done = True
+        reinforcement_notional = amount * price
+        state.estimated_open_fees_usdt += self._estimate_taker_fee_usdt(reinforcement_notional)
         LOG.warning(
             "3x reinforcement executed on %s with used margin %.8f USDT (target %.8f USDT).",
             symbol,
@@ -424,6 +453,7 @@ class LapsBot:
                 "side": base_trend.value,
                 "used_margin_usdt": used_margin,
                 "target_margin_usdt": reinforce_margin,
+                "estimated_open_fees_usdt": state.estimated_open_fees_usdt,
                 "multiplier": self.config.reinforcement_multiplier,
             },
             severity="warning",
@@ -641,7 +671,38 @@ class LapsBot:
             self._handle_reinforcement(position.symbol, base_trend, state)
             return market_trend
 
-        if state.reinforcement_done and roi >= 0:
+        if state.reinforcement_done:
+            close_reference_price = position.mark_price if position.mark_price > 0 else position.entry_price
+            close_notional = position.contracts * close_reference_price
+            estimated_close_fee_usdt = self._estimate_taker_fee_usdt(close_notional)
+            estimated_open_fees_usdt = state.estimated_open_fees_usdt
+            if estimated_open_fees_usdt <= 0:
+                # Fallback for positions opened before fee tracking existed.
+                estimated_open_fees_usdt = self._estimate_taker_fee_usdt(close_notional)
+            estimated_total_fees_usdt = estimated_open_fees_usdt + estimated_close_fee_usdt
+            estimated_net_after_fees_usdt = position.unrealized_pnl - estimated_total_fees_usdt
+
+            if estimated_net_after_fees_usdt < 0:
+                now_bucket = int(time.time()) // self._timeframe_to_seconds(self.config.timeframe)
+                if state.reinforcement_exit_bucket != now_bucket:
+                    self._emit(
+                        "reinforcement_wait_fee_recovery",
+                        "Reinforced position is still negative after estimated fees; waiting before close.",
+                        payload={
+                            "symbol": position.symbol,
+                            "side": position.side,
+                            "roi_pct": roi,
+                            "unrealized_pnl_usdt": position.unrealized_pnl,
+                            "estimated_open_fees_usdt": estimated_open_fees_usdt,
+                            "estimated_close_fee_usdt": estimated_close_fee_usdt,
+                            "estimated_net_after_fees_usdt": estimated_net_after_fees_usdt,
+                        },
+                        severity="warning",
+                    )
+                    state.reinforcement_exit_bucket = now_bucket
+                return market_trend
+
+            state.reinforcement_exit_bucket = None
             self.exchange.close_position(position)
             try:
                 rebalance_80_20(self.exchange, self.config)
@@ -662,6 +723,8 @@ class LapsBot:
                     "side": position.side,
                     "roi_pct": roi,
                     "estimated_realized_pnl_usdt": position.unrealized_pnl,
+                    "estimated_total_fees_usdt": estimated_total_fees_usdt,
+                    "estimated_net_after_fees_usdt": estimated_net_after_fees_usdt,
                     "position_margin_usdt": position.initial_margin,
                     "close_reason": "reinforcement_break_even_recovered",
                     **capital_after,
@@ -675,7 +738,7 @@ class LapsBot:
                 },
             )
             self.position_states.pop(position.symbol, None)
-            LOG.info("Reinforced position returned to non-negative ROI. Position closed.")
+            LOG.info("Reinforced position recovered above estimated fee-adjusted break-even. Position closed.")
             return market_trend
         return market_trend
 
