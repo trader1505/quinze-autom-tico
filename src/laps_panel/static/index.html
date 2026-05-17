@@ -331,6 +331,11 @@
           <div id="leaderRoi" class="value gold">0.0000%</div>
           <div id="leaderPnl" class="detail">PNL: $0.000000</div>
         </div>
+        <div class="card">
+          <div class="label">Margin Ratio Conta (Futures)</div>
+          <div id="accountMarginRatio" class="value gold">0.00%</div>
+          <div id="accountMarginGuard" class="detail">Guardiao: normal</div>
+        </div>
       </div>
 
       <div class="row">
@@ -484,11 +489,24 @@
         }
       }
 
+      function playTopupSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(260, t, 0.13, "sawtooth", 0.08);
+        playTone(330, t + 0.1, 0.15, "sawtooth", 0.08);
+      }
+
+      function playErrorSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(180, t, 0.22, "square", 0.08);
+      }
+
       function maybePlayEventSound(type) {
         if (!audioEnabled || !audioCtx) return;
         if (type === "tp_hit") playTpSound();
         if (type === "reinforcement_recovered_close") playRecovered3xSound();
         if (type === "cash_rebalance") playCashSound();
+        if (type === "margin_topped_up") playTopupSound();
+        if (type === "margin_topup_failed") playErrorSound();
       }
 
       function renderHeaderAndKpis(state, summary) {
@@ -543,6 +561,23 @@
         setText("leaderMeta", `${String(state.side || "-").toUpperCase()} | trend ${String(state.trend || "-").toUpperCase()}`);
         setText("leaderRoi", fmtPct(state.roi_pct || 0));
         setText("leaderPnl", `PNL: ${fmtMoney(state.unrealized_pnl || 0)}`);
+
+        const accountMarginRatio = Number(state.account_margin_ratio_pct || 0);
+        setText("accountMarginRatio", `${accountMarginRatio.toFixed(2)}%`);
+        const guardText = state.account_margin_topup_active
+          ? "Guardiao: topup ativo (aguardando <= 31%)"
+          : "Guardiao: normal";
+        setText("accountMarginGuard", guardText);
+        const accountMarginEl = document.getElementById("accountMarginRatio");
+        if (accountMarginEl) {
+          if (accountMarginRatio >= 70) {
+            accountMarginEl.className = "value short";
+          } else if (accountMarginRatio >= 60) {
+            accountMarginEl.className = "value gold";
+          } else {
+            accountMarginEl.className = "value long";
+          }
+        }
 
         const roiLeader = document.getElementById("leaderRoi");
         if (roiLeader) {
