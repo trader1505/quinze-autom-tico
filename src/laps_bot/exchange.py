@@ -15,6 +15,8 @@ LOG = logging.getLogger(__name__)
 
 
 class ExchangeGateway:
+    NEAREST_MARGIN_FALLBACK_MULTIPLIER = 3.0
+
     def __init__(self, config: BotConfig) -> None:
         self.config = config
         self._leverage_cache: dict[str, int] = {}
@@ -434,10 +436,10 @@ class ExchangeGateway:
             if math.isclose(float(used_margin), target_margin_usdt, rel_tol=0.0, abs_tol=1e-8):
                 return symbol, amount_f, float(price), float(used_margin)
 
-        if nearest is not None and target_margin > 0 and tolerance_pct > 0:
+        if nearest is not None and target_margin > 0:
             delta, symbol, amount_f, price_f, used_margin_f, applied_leverage = nearest
             drift_pct = (delta / target_margin) * Decimal("100")
-            if drift_pct <= tolerance_pct:
+            if tolerance_pct > 0 and drift_pct <= tolerance_pct:
                 LOG.warning(
                     "Using nearest margin match on %s (requested %.8f, got %.8f, drift %.6f%%, leverage %sx).",
                     symbol,
@@ -445,6 +447,23 @@ class ExchangeGateway:
                     used_margin_f,
                     float(drift_pct),
                     applied_leverage,
+                )
+                return symbol, amount_f, price_f, used_margin_f
+
+            # Fallback guard for real exchanges: if exact/tolerance matching is impossible
+            # because of step/min-notional filters, allow nearest only inside a safe bound
+            # to avoid getting stuck with empty slots.
+            max_fallback_margin = target_margin * Decimal(str(self.NEAREST_MARGIN_FALLBACK_MULTIPLIER))
+            if Decimal(str(used_margin_f)) <= max_fallback_margin:
+                LOG.warning(
+                    "No exact margin match found; using safeguarded nearest fallback on %s "
+                    "(requested %.8f, got %.8f, drift %.6f%%, leverage %sx, cap %.8f).",
+                    symbol,
+                    target_margin_usdt,
+                    used_margin_f,
+                    float(drift_pct),
+                    applied_leverage,
+                    float(max_fallback_margin),
                 )
                 return symbol, amount_f, price_f, used_margin_f
 

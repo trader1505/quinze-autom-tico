@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import unittest
+from decimal import Decimal
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,31 @@ class ExchangeUtilsTests(unittest.TestCase):
             "info": {"assets": [{"maintMargin": "3", "marginBalance": "10"}, {"maintMargin": "1", "marginBalance": "10"}]}
         }
         self.assertAlmostEqual(gateway.account_margin_ratio_pct() or 0.0, 20.0)
+
+    def test_choose_symbol_uses_safeguarded_nearest_fallback_when_exact_is_impossible(self) -> None:
+        gateway = ExchangeGateway.__new__(ExchangeGateway)
+        gateway.config = SimpleNamespace(leverage=1, margin_match_tolerance_pct=0.25)
+        gateway.ensure_leverage = lambda symbol, requested: 1  # type: ignore[method-assign]
+        gateway.fetch_last_price = lambda symbol: 0.1  # type: ignore[method-assign]
+        gateway._amount_step = lambda symbol: Decimal("1")  # type: ignore[method-assign]
+        gateway._validate_limits = lambda symbol, amount, cost: True  # type: ignore[method-assign]
+        gateway._minimum_margin_for_symbol = lambda symbol, leverage, price: None  # type: ignore[method-assign]
+
+        symbol, _amount, _price, used_margin = gateway.choose_symbol_and_amount_for_exact_margin(["X/USDT:USDT"], 0.05, 1)
+        self.assertEqual(symbol, "X/USDT:USDT")
+        self.assertAlmostEqual(used_margin, 0.1)
+
+    def test_choose_symbol_keeps_rejecting_when_nearest_fallback_is_too_far(self) -> None:
+        gateway = ExchangeGateway.__new__(ExchangeGateway)
+        gateway.config = SimpleNamespace(leverage=1, margin_match_tolerance_pct=0.25)
+        gateway.ensure_leverage = lambda symbol, requested: 1  # type: ignore[method-assign]
+        gateway.fetch_last_price = lambda symbol: 1.0  # type: ignore[method-assign]
+        gateway._amount_step = lambda symbol: Decimal("1")  # type: ignore[method-assign]
+        gateway._validate_limits = lambda symbol, amount, cost: True  # type: ignore[method-assign]
+        gateway._minimum_margin_for_symbol = lambda symbol, leverage, price: None  # type: ignore[method-assign]
+
+        with self.assertRaises(RuntimeError):
+            gateway.choose_symbol_and_amount_for_exact_margin(["X/USDT:USDT"], 0.05, 1)
 
 
 if __name__ == "__main__":

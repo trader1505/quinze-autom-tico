@@ -25,6 +25,7 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
    - calcula notional com base na alavancagem (com opcao de usar **maxima por ativo**)
    - tenta executar margem com valor **exato**
    - se um ativo nao suporta o valor exato por regra de lote/notional, tenta outros ativos da lista ou do universo dinamico (ate 300).
+   - se nenhum ativo conseguir bater exatamente o alvo, o bot pode usar o **melhor valor proximo** dentro de um limite de seguranca para evitar ficar sem abrir slots.
 4. Quando ROI da posicao atingir **+100%**, fecha 100% da posicao.
 5. Apos fechar no TP, executa rebalanceamento para manter **80/20 (spot/futuros)**.
 6. Se o **margin ratio da conta futures** atingir o gatilho (default `60%`), transfere **20% do spot livre** para futuros.
