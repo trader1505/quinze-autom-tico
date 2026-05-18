@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LAPS Bloomberg Pro Panel</title>
+    <style>
+      :root {
+        --bg: #060606;
+        --bg-soft: #111111;
+        --bg-mid: #171717;
+        --gold: #f9c84f;
+        --gold-strong: #ffde7d;
+        --text: #f8f1dd;
+        --muted: #a89666;
+        --long: #1dff8a;
+        --short: #ff3d49;
+        --warning: #ffd56f;
+        --card-border: #3b2b0b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        background: radial-gradient(circle at 15% 0%, #1d1507 0%, #090909 35%, #040404 100%);
+      }
+
+      .layout {
+        max-width: 1680px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        gap: 16px;
+      }
+
+      .title {
+        font-size: 30px;
+        letter-spacing: 1.4px;
+        color: var(--gold-strong);
+        font-weight: 800;
+      }
+
+      .subtitle {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn {
+        border: 1px solid var(--gold);
+        background: linear-gradient(180deg, #f9c84f 0%, #d3a23d 100%);
+        color: #211503;
+        border-radius: 8px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: #6d6d6d;
+        display: inline-block;
+        margin-right: 7px;
+      }
+
+      .status-dot.ok {
+        background: var(--long);
+        box-shadow: 0 0 10px var(--long);
+      }
+
+      .grid-main {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, #121212 0%, #0a0a0a 100%);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 98px;
+      }
+
+      .card .label {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        font-size: 11px;
+        margin-bottom: 7px;
+      }
+
+      .card .value {
+        font-size: 24px;
+        font-weight: 760;
+      }
+
+      .card .detail {
+        margin-top: 6px;
+        color: #c7b48a;
+        font-size: 12px;
+      }
+
+      .value.long {
+        color: var(--long);
+      }
+
+      .value.short {
+        color: var(--short);
+      }
+
+      .value.gold {
+        color: var(--gold-strong);
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .panel {
+        background: linear-gradient(180deg, #111111 0%, #090909 100%);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+
+      .panel-header {
+        background: #1b1508;
+        color: var(--gold-strong);
+        padding: 10px 12px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        border-bottom: 1px solid #3a2d12;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 9px 11px;
+        border-bottom: 1px solid #1f1a10;
+        font-size: 12px;
+      }
+
+      th {
+        color: #d5bd87;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .badge.long {
+        background: rgba(29, 255, 138, 0.16);
+        border: 1px solid rgba(29, 255, 138, 0.46);
+        color: var(--long);
+      }
+
+      .badge.short {
+        background: rgba(255, 61, 73, 0.16);
+        border: 1px solid rgba(255, 61, 73, 0.46);
+        color: var(--short);
+      }
+
+      .badge.warn {
+        background: rgba(255, 213, 111, 0.15);
+        border: 1px solid rgba(255, 213, 111, 0.4);
+        color: var(--warning);
+      }
+
+      .badge.neutral {
+        background: rgba(157, 157, 157, 0.16);
+        border: 1px solid rgba(157, 157, 157, 0.35);
+        color: #ddd;
+      }
+
+      .roi-pos {
+        color: var(--long);
+        font-weight: 700;
+      }
+
+      .roi-neg {
+        color: var(--short);
+        font-weight: 700;
+      }
+
+      .timeline-row.error td {
+        color: #ffb9bf;
+      }
+
+      .timeline-row.warning td {
+        color: #ffe2a0;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .empty {
+        padding: 16px 12px;
+        color: #b9a880;
+        font-size: 12px;
+      }
+
+      @media (max-width: 1300px) {
+        .grid-main {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .grid-main {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="top">
+        <div>
+          <div class="title">LAPS BLOOMBERG PRO PANEL</div>
+          <div class="subtitle">Monitoramento profissional: TP, lucro fechado, recuperacao 3x, risco e execucao</div>
+        </div>
+        <div class="actions">
+          <button id="soundBtn" class="btn">Ativar som</button>
+        </div>
+      </div>
+
+      <div class="grid-main">
+        <div class="card">
+          <div class="label">Status Operacional</div>
+          <div class="value gold"><span id="statusDot" class="status-dot"></span><span id="statusText">-</span></div>
+          <div id="updatedAt" class="detail">-</div>
+        </div>
+        <div class="card">
+          <div class="label">Operacoes Abertas</div>
+          <div id="openPositions" class="value gold">0</div>
+          <div id="longShortSplit" class="detail">Long 0 / Short 0</div>
+        </div>
+        <div class="card">
+          <div class="label">Rebalance Spot/Futuros</div>
+          <div id="rebalanceActual" class="value gold">0.00% / 0.00%</div>
+          <div id="rebalanceTarget" class="detail">Alvo: 80.00% / 20.00%</div>
+        </div>
+        <div class="card">
+          <div class="label">Saldo Spot (USDT)</div>
+          <div id="spotBalance" class="value gold">$0.000000</div>
+          <div id="spotFree" class="detail">Livre: $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">Saldo Futuros (USDT)</div>
+          <div id="futuresBalance" class="value gold">$0.000000</div>
+          <div id="futuresFree" class="detail">Livre: $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">Lucro Fechado Total</div>
+          <div id="closedProfitTotal" class="value gold">$0.000000</div>
+          <div id="tpAndRecoveryProfit" class="detail">TP $0.000000 + 3x $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">TPs Fechados</div>
+          <div id="tpCount" class="value long">0</div>
+          <div id="tpProfit" class="detail">$0.000000 fechados por TP</div>
+        </div>
+        <div class="card">
+          <div class="label">Recuperacoes 3x</div>
+          <div id="recoveryState" class="value short">0 / 0</div>
+          <div id="recoveryProfit" class="detail">0 em andamento / 0 fechadas</div>
+        </div>
+        <div class="card">
+          <div class="label">Posicao Lider</div>
+          <div id="leaderSymbol" class="value gold">-</div>
+          <div id="leaderMeta" class="detail">-</div>
+        </div>
+        <div class="card">
+          <div class="label">Topups de Margem</div>
+          <div id="topupCount" class="value short">0</div>
+          <div id="topupVolume" class="detail">Volume: $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">Ultimo TP</div>
+          <div id="lastTpAt" class="value gold muted">-</div>
+          <div id="lastRebalanceAt" class="detail">Ultimo cash rebalance: -</div>
+        </div>
+        <div class="card">
+          <div class="label">Ultima Recuperacao 3x</div>
+          <div id="lastRecoveryAt" class="value gold muted">-</div>
+          <div id="errorCount" class="detail">Erros monitorados: 0</div>
+        </div>
+        <div class="card">
+          <div class="label">ROI Lider Atual</div>
+          <div id="leaderRoi" class="value gold">0.0000%</div>
+          <div id="leaderPnl" class="detail">PNL: $0.000000</div>
+        </div>
+        <div class="card">
+          <div class="label">Margin Ratio Conta (Futures)</div>
+          <div id="accountMarginRatio" class="value gold">0.00%</div>
+          <div id="accountMarginGuard" class="detail">Guardiao: normal</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="panel">
+          <div class="panel-header">Posicoes Ativas (Long/Short)</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Simbolo</th>
+                <th>Lado</th>
+                <th>Contratos</th>
+                <th>Entrada</th>
+                <th>ROI</th>
+                <th>PNL</th>
+                <th>Tendencia</th>
+                <th>Status 3x</th>
+                <th>Topups</th>
+              </tr>
+            </thead>
+            <tbody id="positionsBody"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <div class="panel-header">Recuperacoes 3x (Andamento / Fechadas)</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Simbolo</th>
+                <th>Estado</th>
+                <th>ROI</th>
+                <th>Topups</th>
+              </tr>
+            </thead>
+            <tbody id="recoveryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Timeline de Funcoes Executadas</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 170px">Hora UTC</th>
+              <th style="width: 170px">Tipo</th>
+              <th>Descricao</th>
+              <th style="width: 320px">Payload</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const seen = new Set();
+      let audioEnabled = false;
+      let audioCtx = null;
+
+      function fmtMoney(value) {
+        const n = Number(value || 0);
+        return `$${n.toFixed(6)}`;
+      }
+
+      function fmtPct(value) {
+        const n = Number(value || 0);
+        return `${n.toFixed(4)}%`;
+      }
+
+      function setText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value ?? "-";
+      }
+
+      function sideBadge(side) {
+        const s = String(side || "").toLowerCase();
+        if (s === "long") return '<span class="badge long">LONG</span>';
+        if (s === "short") return '<span class="badge short">SHORT</span>';
+        return '<span class="badge neutral">N/A</span>';
+      }
+
+      function trendBadge(trend) {
+        const t = String(trend || "").toLowerCase();
+        if (t === "long") return '<span class="badge long">LONG</span>';
+        if (t === "short") return '<span class="badge short">SHORT</span>';
+        return '<span class="badge neutral">FLAT</span>';
+      }
+
+      function reinforcementStatus(position) {
+        if (position.reinforcement_done) {
+          return '<span class="badge warn">3X EXECUTADO</span>';
+        }
+        if (position.reinforcement_alert) {
+          return '<span class="badge warn">ALERTA 3X</span>';
+        }
+        return '<span class="badge neutral">NORMAL</span>';
+      }
+
+      function roiClass(roi) {
+        return Number(roi) >= 0 ? "roi-pos" : "roi-neg";
+      }
+
+      function eventRowClass(severity) {
+        if (severity === "error") return "timeline-row error";
+        if (severity === "warning") return "timeline-row warning";
+        return "timeline-row";
+      }
+
+      const soundBtn = document.getElementById("soundBtn");
+      soundBtn.addEventListener("click", async () => {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+        audioEnabled = true;
+        soundBtn.textContent = "Som ativo";
+      });
+
+      function playTone(freq, start, duration, type = "sine", gain = 0.06) {
+        if (!audioEnabled || !audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const amp = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, start);
+        amp.gain.setValueAtTime(0.0001, start);
+        amp.gain.exponentialRampToValueAtTime(gain, start + 0.02);
+        amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        osc.connect(amp);
+        amp.connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + duration + 0.03);
+      }
+
+      function playTpSound() {
+        const t = audioCtx.currentTime + 0.01;
+        playTone(740, t, 0.16, "triangle", 0.08);
+        playTone(990, t + 0.12, 0.18, "triangle", 0.09);
+        playTone(1240, t + 0.22, 0.22, "triangle", 0.1);
+      }
+
+      function playRecovered3xSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(300, t, 0.12, "sawtooth", 0.07);
+        playTone(420, t + 0.08, 0.12, "sawtooth", 0.07);
+        playTone(620, t + 0.16, 0.16, "sawtooth", 0.08);
+        playTone(930, t + 0.26, 0.22, "sawtooth", 0.09);
+      }
+
+      function playCashSound() {
+        const t = audioCtx.currentTime + 0.02;
+        for (let i = 0; i < 9; i++) {
+          playTone(1300 + i * 180, t + i * 0.024, 0.07, "square", 0.06);
+        }
+      }
+
+      function playTopupSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(260, t, 0.13, "sawtooth", 0.08);
+        playTone(330, t + 0.1, 0.15, "sawtooth", 0.08);
+      }
+
+      function playErrorSound() {
+        const t = audioCtx.currentTime + 0.02;
+        playTone(180, t, 0.22, "square", 0.08);
+      }
+
+      function maybePlayEventSound(type) {
+        if (!audioEnabled || !audioCtx) return;
+        if (type === "tp_hit") playTpSound();
+        if (type === "reinforcement_recovered_close") playRecovered3xSound();
+        if (type === "cash_rebalance") playCashSound();
+        if (type === "margin_topped_up") playTopupSound();
+        if (type === "margin_topup_failed") playErrorSound();
+      }
+
+      function renderHeaderAndKpis(state, summary) {
+        const statusText = state.status || "unknown";
+        setText("statusText", statusText);
+        const dot = document.getElementById("statusDot");
+        if (dot) {
+          dot.className = `status-dot ${statusText === "error" ? "" : "ok"}`;
+        }
+
+        setText("updatedAt", `Atualizado: ${state.updated_at || "-"}`);
+        setText("openPositions", String(state.open_positions_count ?? 0));
+        setText("longShortSplit", `Long ${summary.open_long || 0} / Short ${summary.open_short || 0}`);
+        const spotPct = Number(state.spot_pct_actual || 0);
+        const futuresPct = Number(state.futures_pct_actual || 0);
+        const spotTarget = Number(state.spot_target_pct || 80);
+        const futuresTarget = Number(state.futures_target_pct || 20);
+        const spotBalance = Number(state.spot_total_usdt || 0);
+        const futuresBalance = Number(state.futures_total_usdt || 0);
+        const spotFree = Number(state.spot_free_usdt || 0);
+        const futuresFree = Number(state.futures_free_usdt || 0);
+        setText("rebalanceActual", `${spotPct.toFixed(2)}% / ${futuresPct.toFixed(2)}%`);
+        setText("rebalanceTarget", `Alvo: ${spotTarget.toFixed(2)}% / ${futuresTarget.toFixed(2)}%`);
+        setText("spotBalance", fmtMoney(spotBalance));
+        setText("spotFree", `Livre: ${fmtMoney(spotFree)}`);
+        setText("futuresBalance", fmtMoney(futuresBalance));
+        setText("futuresFree", `Livre: ${fmtMoney(futuresFree)}`);
+
+        setText("closedProfitTotal", fmtMoney(summary.closed_profit_total_usdt));
+        setText(
+          "tpAndRecoveryProfit",
+          `TP ${fmtMoney(summary.tp_realized_pnl_usdt)} + 3x ${fmtMoney(summary.recovery_closed_realized_pnl_usdt)}`,
+        );
+
+        setText("tpCount", String(summary.tp_hits || 0));
+        setText("tpProfit", `${fmtMoney(summary.tp_realized_pnl_usdt)} fechados por TP`);
+
+        setText("recoveryState", `${summary.recoveries_ongoing_count || 0} / ${summary.recovery_closed_count || 0}`);
+        setText(
+          "recoveryProfit",
+          `${summary.recoveries_ongoing_count || 0} em andamento / ${summary.recovery_closed_count || 0} fechadas`,
+        );
+
+        setText("topupCount", String(summary.topup_count || 0));
+        setText("topupVolume", `Volume: ${fmtMoney(summary.topup_total_usdt)}`);
+        setText("lastTpAt", summary.last_tp_at || "-");
+        setText("lastRebalanceAt", `Ultimo cash rebalance: ${summary.last_cash_rebalance_at || "-"}`);
+        setText("lastRecoveryAt", summary.last_recovery_close_at || "-");
+        setText("errorCount", `Erros monitorados: ${summary.error_count || 0}`);
+
+        setText("leaderSymbol", state.symbol || "-");
+        setText("leaderMeta", `${String(state.side || "-").toUpperCase()} | trend ${String(state.trend || "-").toUpperCase()}`);
+        setText("leaderRoi", fmtPct(state.roi_pct || 0));
+        setText("leaderPnl", `PNL: ${fmtMoney(state.unrealized_pnl || 0)}`);
+
+        const accountMarginRatio = Number(state.account_margin_ratio_pct || 0);
+        setText("accountMarginRatio", `${accountMarginRatio.toFixed(2)}%`);
+        const guardText = state.account_margin_topup_active
+          ? "Guardiao: topup ativo (aguardando <= 31%)"
+          : "Guardiao: normal";
+        setText("accountMarginGuard", guardText);
+        const accountMarginEl = document.getElementById("accountMarginRatio");
+        if (accountMarginEl) {
+          if (accountMarginRatio >= 70) {
+            accountMarginEl.className = "value short";
+          } else if (accountMarginRatio >= 60) {
+            accountMarginEl.className = "value gold";
+          } else {
+            accountMarginEl.className = "value long";
+          }
+        }
+
+        const roiLeader = document.getElementById("leaderRoi");
+        if (roiLeader) {
+          roiLeader.className = `value ${Number(state.roi_pct || 0) >= 0 ? "long" : "short"}`;
+        }
+      }
+
+      function renderPositions(state) {
+        const tbody = document.getElementById("positionsBody");
+        tbody.innerHTML = "";
+        const positions = state.positions || [];
+        if (!positions.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma posicao aberta no momento.</td></tr>';
+          return;
+        }
+        positions.forEach((p) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${p.symbol || "-"}</td>
+            <td>${sideBadge(p.side)}</td>
+            <td>${Number(p.contracts || 0).toFixed(6)}</td>
+            <td>${Number(p.entry_price || 0).toFixed(6)}</td>
+            <td class="${roiClass(p.roi_pct)}">${fmtPct(p.roi_pct)}</td>
+            <td class="${roiClass(p.unrealized_pnl)}">${fmtMoney(p.unrealized_pnl)}</td>
+            <td>${trendBadge(p.trend)}</td>
+            <td>${reinforcementStatus(p)}</td>
+            <td>${p.topups_used ?? 0}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderRecoveryBoard(state) {
+        const tbody = document.getElementById("recoveryBody");
+        tbody.innerHTML = "";
+        const positions = state.positions || [];
+        const recoveryRows = positions.filter((p) => Boolean(p.reinforcement_alert) || Boolean(p.reinforcement_done));
+        if (!recoveryRows.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="empty">Nenhuma recuperacao 3x em andamento.</td></tr>';
+          return;
+        }
+        recoveryRows.forEach((p) => {
+          const label = p.reinforcement_done ? "3X EXECUTADO" : "ALERTA 3X";
+          const badgeClass = p.reinforcement_done ? "warn" : "short";
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${p.symbol || "-"}</td>
+            <td><span class="badge ${badgeClass}">${label}</span></td>
+            <td class="${roiClass(p.roi_pct)}">${fmtPct(p.roi_pct)}</td>
+            <td>${p.topups_used ?? 0}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderEvents(events) {
+        const tbody = document.getElementById("eventsBody");
+        tbody.innerHTML = "";
+        const rows = [...events].reverse().slice(0, 120);
+        rows.forEach((ev) => {
+          const payload = JSON.stringify(ev.payload || {});
+          const tr = document.createElement("tr");
+          tr.className = eventRowClass(ev.severity);
+          tr.innerHTML = `
+            <td>${ev.ts || "-"}</td>
+            <td>${ev.type || "-"}</td>
+            <td>${ev.message || "-"}</td>
+            <td class="muted">${payload}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      async function refresh() {
+        try {
+          const [stateRes, eventsRes, summaryRes] = await Promise.all([
+            fetch("/api/state"),
+            fetch("/api/events?limit=200"),
+            fetch("/api/summary"),
+          ]);
+          const state = await stateRes.json();
+          const eventsPayload = await eventsRes.json();
+          const summary = await summaryRes.json();
+          const events = eventsPayload.events || [];
+
+          renderHeaderAndKpis(state, summary);
+          renderPositions(state);
+          renderRecoveryBoard(state);
+          renderEvents(events);
+
+          for (const ev of events) {
+            const key = `${ev.ts}|${ev.type}|${ev.message}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              maybePlayEventSound(ev.type);
+            }
+          }
+          if (seen.size > 9000) {
+            const trimmed = Array.from(seen).slice(-5000);
+            seen.clear();
+            trimmed.forEach((key) => seen.add(key));
+          }
+        } catch (error) {
+          console.error("Falha ao atualizar painel:", error);
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
