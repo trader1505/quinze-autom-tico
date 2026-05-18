@@ -39,6 +39,9 @@ class RiskTests(unittest.TestCase):
             target_roi_pct=100.0,
             add_margin_trigger_pct=-60.0,
             margin_ratio_trigger_pct=60.0,
+            margin_ratio_emergency_pct=70.0,
+            margin_emergency_topup_pct=100.0,
+            margin_ratio_hard_stop_pct=78.0,
             margin_ratio_rebalance_pct=31.0,
             margin_match_tolerance_pct=0.25,
             taker_fee_rate=0.0005,
@@ -97,6 +100,18 @@ class RiskTests(unittest.TestCase):
         cfg = self._make_config(max_positions=301, symbols=("BTC/USDT:USDT",))
         object.__setattr__(cfg, "scan_all_symbols", True)
         object.__setattr__(cfg, "max_scan_symbols", 300)
+        with self.assertRaises(ValueError):
+            validate_config(cfg)
+
+    def test_validate_config_rejects_emergency_below_trigger(self) -> None:
+        cfg = self._make_config(max_positions=1, symbols=("BTC/USDT:USDT",))
+        object.__setattr__(cfg, "margin_ratio_emergency_pct", 59.0)
+        with self.assertRaises(ValueError):
+            validate_config(cfg)
+
+    def test_validate_config_rejects_hard_stop_not_above_emergency(self) -> None:
+        cfg = self._make_config(max_positions=1, symbols=("BTC/USDT:USDT",))
+        object.__setattr__(cfg, "margin_ratio_hard_stop_pct", 70.0)
         with self.assertRaises(ValueError):
             validate_config(cfg)
 

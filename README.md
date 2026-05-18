@@ -29,6 +29,8 @@ Implementacao inicial de um bot para operar futuros com regras fixas:
 5. Apos fechar no TP, executa rebalanceamento para manter **80/20 (spot/futuros)**.
 6. Se o **margin ratio da conta futures** atingir o gatilho (default `60%`), transfere **20% do spot livre** para futuros.
    - enquanto continuar acima do gatilho, o bot pode repetir o topup com cooldown de seguranca.
+   - se entrar em zona de emergencia (default `>= 70%`), o bot ignora cooldown e pode transferir percentual emergencial (default `100%` do spot livre).
+   - se entrar em zona critica (default `>= 78%`), o bot aciona hard-stop e fecha automaticamente uma posicao para evitar cascata de liquidacao.
    - quando o margin ratio recuar para o nivel de recuperacao (default `31%`), executa rebalance para voltar ao alvo 80/20.
 7. Regra 3x:
    - exige cruzamento EMA contra a direcao da entrada (alerta)
@@ -119,6 +121,9 @@ Depois acesse:
 - `LAPS_TARGET_ROI_PCT`: alvo de fechamento (default `100`)
 - `LAPS_ADD_MARGIN_TRIGGER_PCT`: mantido para compatibilidade historica
 - `LAPS_MARGIN_RATIO_TRIGGER_PCT`: gatilho de topup por margin ratio da conta futures (default `60`)
+- `LAPS_MARGIN_RATIO_EMERGENCY_PCT`: zona de emergencia para bypass do cooldown de topup (default `70`)
+- `LAPS_MARGIN_EMERGENCY_TOPUP_PCT`: percentual usado no topup emergencial (default `100`)
+- `LAPS_MARGIN_RATIO_HARD_STOP_PCT`: zona critica para fechamento automatico de reducao de risco (default `78`)
 - `LAPS_MARGIN_RATIO_REBALANCE_PCT`: nivel de recuperacao para rearmar/rebalancear apos topup (default `31`)
 - `LAPS_MARGIN_MATCH_TOLERANCE_PCT`: tolerancia de ajuste de margem para respeitar step/notional da exchange (default `0.25`)
 - `LAPS_REINFORCEMENT_MULTIPLIER`: multiplicador do reforco (default `3`)

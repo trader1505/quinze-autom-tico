@@ -39,6 +39,9 @@ class BotConfig:
     target_roi_pct: float
     add_margin_trigger_pct: float
     margin_ratio_trigger_pct: float
+    margin_ratio_emergency_pct: float
+    margin_emergency_topup_pct: float
+    margin_ratio_hard_stop_pct: float
     margin_ratio_rebalance_pct: float
     margin_match_tolerance_pct: float
     taker_fee_rate: float
@@ -82,6 +85,9 @@ def load_config() -> BotConfig:
         target_roi_pct=_read_float("LAPS_TARGET_ROI_PCT", 100.0),
         add_margin_trigger_pct=_read_float("LAPS_ADD_MARGIN_TRIGGER_PCT", -60.0),
         margin_ratio_trigger_pct=_read_float("LAPS_MARGIN_RATIO_TRIGGER_PCT", 60.0),
+        margin_ratio_emergency_pct=_read_float("LAPS_MARGIN_RATIO_EMERGENCY_PCT", 70.0),
+        margin_emergency_topup_pct=_read_float("LAPS_MARGIN_EMERGENCY_TOPUP_PCT", 100.0),
+        margin_ratio_hard_stop_pct=_read_float("LAPS_MARGIN_RATIO_HARD_STOP_PCT", 78.0),
         margin_ratio_rebalance_pct=_read_float("LAPS_MARGIN_RATIO_REBALANCE_PCT", 31.0),
         margin_match_tolerance_pct=_read_float("LAPS_MARGIN_MATCH_TOLERANCE_PCT", 0.25),
         taker_fee_rate=_read_float("LAPS_TAKER_FEE_RATE", 0.0005),
@@ -115,6 +121,16 @@ def load_config() -> BotConfig:
         raise ValueError("LAPS_ENTRY_SCAN_BATCH must be positive.")
     if cfg.margin_ratio_trigger_pct <= 0:
         raise ValueError("LAPS_MARGIN_RATIO_TRIGGER_PCT must be positive.")
+    if cfg.margin_ratio_emergency_pct <= 0:
+        raise ValueError("LAPS_MARGIN_RATIO_EMERGENCY_PCT must be positive.")
+    if cfg.margin_ratio_emergency_pct < cfg.margin_ratio_trigger_pct:
+        raise ValueError("LAPS_MARGIN_RATIO_EMERGENCY_PCT must be >= LAPS_MARGIN_RATIO_TRIGGER_PCT.")
+    if cfg.margin_emergency_topup_pct <= 0 or cfg.margin_emergency_topup_pct > 100:
+        raise ValueError("LAPS_MARGIN_EMERGENCY_TOPUP_PCT must be between 0 and 100.")
+    if cfg.margin_ratio_hard_stop_pct <= cfg.margin_ratio_emergency_pct:
+        raise ValueError("LAPS_MARGIN_RATIO_HARD_STOP_PCT must be > LAPS_MARGIN_RATIO_EMERGENCY_PCT.")
+    if cfg.margin_ratio_hard_stop_pct > 100:
+        raise ValueError("LAPS_MARGIN_RATIO_HARD_STOP_PCT must be <= 100.")
     if cfg.margin_ratio_rebalance_pct <= 0:
         raise ValueError("LAPS_MARGIN_RATIO_REBALANCE_PCT must be positive.")
     if cfg.margin_ratio_rebalance_pct >= cfg.margin_ratio_trigger_pct:

@@ -41,6 +41,20 @@ def split_8020(total_usdt: float, spot_pct: float, futures_pct: float) -> tuple[
 def validate_config(config: BotConfig) -> None:
     if config.max_positions <= 0:
         raise ValueError("LAPS_MAX_POSITIONS must be greater than zero.")
+    if config.margin_ratio_trigger_pct <= 0:
+        raise ValueError("LAPS_MARGIN_RATIO_TRIGGER_PCT must be positive.")
+    if config.margin_ratio_emergency_pct < config.margin_ratio_trigger_pct:
+        raise ValueError("LAPS_MARGIN_RATIO_EMERGENCY_PCT must be >= LAPS_MARGIN_RATIO_TRIGGER_PCT.")
+    if config.margin_emergency_topup_pct <= 0 or config.margin_emergency_topup_pct > 100:
+        raise ValueError("LAPS_MARGIN_EMERGENCY_TOPUP_PCT must be between 0 and 100.")
+    if config.margin_ratio_hard_stop_pct <= config.margin_ratio_emergency_pct:
+        raise ValueError("LAPS_MARGIN_RATIO_HARD_STOP_PCT must be > LAPS_MARGIN_RATIO_EMERGENCY_PCT.")
+    if config.margin_ratio_hard_stop_pct > 100:
+        raise ValueError("LAPS_MARGIN_RATIO_HARD_STOP_PCT must be <= 100.")
+    if config.margin_ratio_rebalance_pct <= 0:
+        raise ValueError("LAPS_MARGIN_RATIO_REBALANCE_PCT must be positive.")
+    if config.margin_ratio_rebalance_pct >= config.margin_ratio_trigger_pct:
+        raise ValueError("LAPS_MARGIN_RATIO_REBALANCE_PCT must be lower than LAPS_MARGIN_RATIO_TRIGGER_PCT.")
     if config.scan_all_symbols:
         if config.max_positions > config.max_scan_symbols:
             raise ValueError("LAPS_MAX_POSITIONS cannot be greater than LAPS_MAX_SCAN_SYMBOLS.")

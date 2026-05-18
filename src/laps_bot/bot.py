@@ -275,15 +275,17 @@ class LapsBot:
             return
 
         trigger = self.config.margin_ratio_trigger_pct
+        emergency = self.config.margin_ratio_emergency_pct
         recovery = self.config.margin_ratio_rebalance_pct
 
         if account_margin_ratio_pct >= trigger:
             self._account_margin_topup_active = True
+            emergency_mode = account_margin_ratio_pct >= emergency
             now_ts = time.time()
             cooldown_remaining = self.ACCOUNT_MARGIN_TOPUP_COOLDOWN_SECONDS - (
                 now_ts - self._account_margin_last_topup_ts
             )
-            if cooldown_remaining > 0:
+            if cooldown_remaining > 0 and not emergency_mode:
                 self._emit(
                     "margin_topped_up_skipped",
                     "Topup skipped because account margin guard cooldown is still active.",
@@ -295,8 +297,22 @@ class LapsBot:
                     severity="warning",
                 )
                 return
+            if cooldown_remaining > 0 and emergency_mode:
+                self._emit(
+                    "margin_topup_emergency_bypass",
+                    "Emergency margin threshold reached; cooldown bypassed for immediate topup.",
+                    payload={
+                        "account_margin_ratio_pct": account_margin_ratio_pct,
+                        "margin_ratio_emergency_pct": emergency,
+                        "cooldown_remaining_seconds": round(cooldown_remaining, 2),
+                    },
+                    severity="warning",
+                )
             spot_free = self.exchange.free_spot_usdt()
-            topup_amount = margin_topup_usdt(spot_free, self.config.margin_topup_pct)
+            topup_pct = (
+                self.config.margin_emergency_topup_pct if emergency_mode else self.config.margin_topup_pct
+            )
+            topup_amount = min(spot_free, margin_topup_usdt(spot_free, topup_pct))
             if topup_amount <= 0:
                 self._emit(
                     "margin_topped_up_skipped",
@@ -331,8 +347,10 @@ class LapsBot:
                 payload={
                     "account_margin_ratio_pct": account_margin_ratio_pct,
                     "margin_ratio_trigger_pct": trigger,
+                    "margin_ratio_emergency_pct": emergency,
                     "topup_amount_usdt": topup_amount,
-                    "margin_topup_pct": self.config.margin_topup_pct,
+                    "margin_topup_pct": topup_pct,
+                    "emergency_mode": emergency_mode,
                 },
                 severity="warning",
             )
@@ -363,6 +381,63 @@ class LapsBot:
                     "margin_ratio_rebalance_pct": recovery,
                 },
             )
+
+    @staticmethod
+    def _hard_stop_position_score(position: PositionState) -> tuple[float, float]:
+        margin_ratio = position.margin_ratio_pct if position.margin_ratio_pct is not None else -1.0
+        # Prioritize the position with highest margin pressure, then lowest ROI.
+        return margin_ratio, -position.roi_pct
+
+    def _apply_hard_stop_if_needed(
+        self,
+        account_margin_ratio_pct: float | None,
+        positions: list[PositionState],
+        symbol_universe: list[str],
+    ) -> list[PositionState]:
+        if account_margin_ratio_pct is None:
+            return positions
+        if account_margin_ratio_pct < self.config.margin_ratio_hard_stop_pct:
+            return positions
+        if not positions:
+            return positions
+
+        target = max(positions, key=self._hard_stop_position_score)
+        try:
+            self.exchange.close_position(target)
+        except Exception as exc:
+            self._emit(
+                "hard_risk_reduce_failed",
+                "Hard-stop failed while trying to reduce liquidation risk.",
+                payload={
+                    "account_margin_ratio_pct": account_margin_ratio_pct,
+                    "margin_ratio_hard_stop_pct": self.config.margin_ratio_hard_stop_pct,
+                    "symbol": target.symbol,
+                    "side": target.side,
+                    "roi_pct": target.roi_pct,
+                    "margin_ratio_pct": target.margin_ratio_pct,
+                    "error": str(exc),
+                },
+                severity="error",
+            )
+            return positions
+
+        if hasattr(self, "position_states"):
+            self.position_states.pop(target.symbol, None)
+        self._emit(
+            "hard_risk_reduce",
+            "Hard-stop executed: closed one position to avoid liquidation cascade.",
+            payload={
+                "account_margin_ratio_pct": account_margin_ratio_pct,
+                "margin_ratio_hard_stop_pct": self.config.margin_ratio_hard_stop_pct,
+                "symbol": target.symbol,
+                "side": target.side,
+                "roi_pct": target.roi_pct,
+                "margin_ratio_pct": target.margin_ratio_pct,
+                "open_positions_before": len(positions),
+            },
+            severity="warning",
+        )
+        return self.exchange.fetch_open_positions(symbol_universe)
 
     def _signal_for_symbol(self, symbol: str, emit_event: bool = True) -> TrendSignal:
         candles_needed = self.config.slow_ma + 50
@@ -886,7 +961,9 @@ class LapsBot:
         symbol_universe = self._symbol_universe()
         account_margin_ratio_pct = self.exchange.account_margin_ratio_pct()
         self._manage_account_margin_ratio(account_margin_ratio_pct)
+        post_guard_margin_ratio_pct = self.exchange.account_margin_ratio_pct()
         positions = self.exchange.fetch_open_positions(symbol_universe)
+        positions = self._apply_hard_stop_if_needed(post_guard_margin_ratio_pct, positions, symbol_universe)
         open_symbols = {position.symbol for position in positions}
         self._drop_closed_states(open_symbols)
 
@@ -958,6 +1035,8 @@ class LapsBot:
                 "leverage": self.config.leverage,
                 "use_max_leverage_per_symbol": self.config.use_max_leverage_per_symbol,
                 "margin_ratio_trigger_pct": self.config.margin_ratio_trigger_pct,
+                "margin_ratio_emergency_pct": self.config.margin_ratio_emergency_pct,
+                "margin_ratio_hard_stop_pct": self.config.margin_ratio_hard_stop_pct,
                 "margin_ratio_rebalance_pct": self.config.margin_ratio_rebalance_pct,
                 "max_positions": self.config.max_positions,
             },
