@@ -14,5 +14,5 @@ gateways.
 
 - Architecture: [docs/adaptive-core-engine.md](docs/adaptive-core-engine.md)
 - Package: `backend/laps_hybrid/adaptive_core`
-- Validation: `python -m unittest discover -s tests`
+- Validation: `python3 -m unittest discover -s tests`
 
