@@ -49,3 +49,14 @@ tracking, wallet ledgering, dashboard planning, and investor audit boundaries.
 - Package: `backend/laps_hybrid/copy_trading`
 - Validation: `python3 -m unittest discover -s tests`
 
+## AI Intelligence & Learning System
+
+The AI Intelligence & Learning System is the adaptive intelligence layer. It
+scores confidence, evaluates strategy quality, detects degradation, calculates
+market fear, understands session behavior, records shadow strategy evidence, and
+recommends adaptive aggression while preserving survival-first constraints.
+
+- Architecture: [docs/ai-intelligence-learning-system.md](docs/ai-intelligence-learning-system.md)
+- Package: `backend/laps_hybrid/ai_intelligence`
+- Validation: `python3 -m unittest discover -s tests`
+
