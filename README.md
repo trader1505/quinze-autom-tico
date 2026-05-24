@@ -38,3 +38,14 @@ audit records, and execution failsafe responses.
 - Package: `backend/laps_hybrid/execution_exchange`
 - Validation: `python3 -m unittest discover -s tests`
 
+## Copy Trading & Investor Ecosystem
+
+The Copy Trading & Investor Ecosystem turns the platform into scalable investor
+infrastructure with master-account replication, investor subaccounts,
+proportional scaling, investor DNA constraints, revenue distribution, referral
+tracking, wallet ledgering, dashboard planning, and investor audit boundaries.
+
+- Architecture: [docs/copy-trading-investor-ecosystem.md](docs/copy-trading-investor-ecosystem.md)
+- Package: `backend/laps_hybrid/copy_trading`
+- Validation: `python3 -m unittest discover -s tests`
+
