@@ -27,3 +27,14 @@ signals to produce enforceable safe-mode budgets.
 - Package: `backend/laps_hybrid/risk_survival`
 - Validation: `python3 -m unittest discover -s tests`
 
+## Execution & Exchange Engine
+
+The Execution & Exchange Engine is the real-market execution layer. It provides
+exchange connector boundaries, resilient websocket health decisions, smart order
+planning, order lifecycle validation, position reconciliation, event publishing,
+audit records, and execution failsafe responses.
+
+- Architecture: [docs/execution-exchange-engine.md](docs/execution-exchange-engine.md)
+- Package: `backend/laps_hybrid/execution_exchange`
+- Validation: `python3 -m unittest discover -s tests`
+
