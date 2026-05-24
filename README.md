@@ -16,3 +16,14 @@ gateways.
 - Package: `backend/laps_hybrid/adaptive_core`
 - Validation: `python3 -m unittest discover -s tests`
 
+## Risk & Survival Engine
+
+The Risk & Survival Engine is the platform's highest-priority protection layer.
+It evaluates portfolio exposure, drawdown, exchange stability, liquidity,
+strategy degradation, hidden BTC correlation, failsafe incidents, and watchdog
+signals to produce enforceable safe-mode budgets.
+
+- Architecture: [docs/risk-survival-engine.md](docs/risk-survival-engine.md)
+- Package: `backend/laps_hybrid/risk_survival`
+- Validation: `python3 -m unittest discover -s tests`
+
